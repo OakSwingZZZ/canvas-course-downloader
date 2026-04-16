@@ -206,6 +206,15 @@ function getOverlayStyles() {
       border-radius: 4px; transition: background 0.15s;
     }
     .cd-close-btn:hover { color: #2d3b45; background: #f0f0f0; }
+    .cd-header-actions { display: flex; align-items: center; gap: 4px; }
+    .cd-settings-btn {
+      background: none; border: none; cursor: pointer;
+      color: #6b7b8d; padding: 6px; line-height: 0;
+      border-radius: 4px; transition: background 0.15s, color 0.15s;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .cd-settings-btn:hover { color: #2d3b45; background: #f0f0f0; }
+    .cd-settings-btn svg { width: 18px; height: 18px; }
     .cd-tabs {
       display: flex; border-bottom: 1px solid #e5e5e5;
     }
@@ -326,7 +335,15 @@ async function openCourseSelector() {
     <div class="cd-modal" role="document">
       <div class="cd-modal-header">
         <h2><img src="${chrome.runtime.getURL("icons/icon-128.png")}" alt="">Course Downloader</h2>
-        <button class="cd-close-btn" id="cd-close" aria-label="Close">&times;</button>
+        <div class="cd-header-actions">
+          <button class="cd-settings-btn" id="cd-settings" aria-label="Open settings" title="Settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
+          <button class="cd-close-btn" id="cd-close" aria-label="Close">&times;</button>
+        </div>
       </div>
       <div class="cd-tabs" role="tablist">
         <button class="cd-tab active" role="tab" aria-selected="true" data-tab="active" id="cd-tab-active">Active Courses</button>
@@ -391,6 +408,9 @@ async function openCourseSelector() {
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeOverlay(); });
   document.getElementById("cd-close").addEventListener("click", closeOverlay);
   document.getElementById("cd-finish-btn").addEventListener("click", closeOverlay);
+  document.getElementById("cd-settings").addEventListener("click", () => {
+    chrome.runtime.sendMessage({ type: "OPEN_OPTIONS" });
+  });
 
   // Focus the close button initially
   document.getElementById("cd-close").focus();

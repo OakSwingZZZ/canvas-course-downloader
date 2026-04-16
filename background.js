@@ -216,6 +216,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     broadcastStatus();
     if (!isProcessing && failedJobs.length > 0) processQueue();
     sendResponse({ status: "retrying", count: failedJobs.length });
+  } else if (message.type === "OPEN_OPTIONS") {
+    chrome.runtime.openOptionsPage();
+    sendResponse({ status: "ok" });
   } else if (message.type === "CANCEL_DOWNLOADS") {
     cancelled = true;
     const activeJob = jobs.find((j) => j.state === STATE.DOWNLOADING);
