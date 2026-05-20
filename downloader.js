@@ -255,7 +255,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
 
         filesToDownload.push({
           url: toHtmlDataUri(page.title, page.body || ""),
-          filename: `${page.url}.html`,
+          filename: `${sanitizeFilename(page.url).substring(0, 100)}.html`,
           path: "Pages/",
         });
 

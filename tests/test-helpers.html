@@ -55,7 +55,13 @@
     assertEqual("sanitizeFilename: replaces slashes", sanitizeFilename("a/b\\c"), "a-b-c");
     assertEqual("sanitizeFilename: replaces special chars", sanitizeFilename('a?b*c|d"e<f>g'), "a-b-c-d-e-f-g");
     assertEqual("sanitizeFilename: leaves normal names alone", sanitizeFilename("lecture-notes.pdf"), "lecture-notes.pdf");
-    assertEqual("sanitizeFilename: handles empty string", sanitizeFilename(""), "");
+    assertEqual("sanitizeFilename: handles empty string", sanitizeFilename(""), "untitled");
+    assertEqual("sanitizeFilename: strips zero-width chars", sanitizeFilename("Welcome​!"), "Welcome!");
+    assertEqual("sanitizeFilename: converts NBSP to space", sanitizeFilename("Week 2"), "Week 2");
+    assertEqual("sanitizeFilename: trims trailing dots", sanitizeFilename("notes..."), "notes");
+    assertEqual("sanitizeFilename: trims trailing spaces", sanitizeFilename("notes   "), "notes");
+    assertEqual("sanitizeFilename: escapes Windows reserved names", sanitizeFilename("CON.txt"), "_CON.txt");
+    assertEqual("sanitizeFilename: returns untitled when fully stripped", sanitizeFilename("​​"), "untitled");
 
     // --- sanitizeHtml ---
     assertEqual("sanitizeHtml: removes script tags", sanitizeHtml('<p>Hello</p><script>alert("xss")</script>'), "<p>Hello</p>");

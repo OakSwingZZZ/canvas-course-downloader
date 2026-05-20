@@ -37,9 +37,19 @@ function darkenColor(hex, amount = 0.15) {
 // String & Path Sanitization
 // ---------------------------------------------------------------------------
 
-/** Replaces characters that are invalid in file paths. */
+/** Replaces characters that are invalid or problematic in file paths. */
 function sanitizeFilename(name) {
-  return name.replace(/[/\\?%*:|"<>]/g, "-");
+  if (!name) return "untitled";
+  const cleaned = name
+    .replace(/[\u0000-\u001F\u007F]/g, "")                          // control chars
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")                          // zero-width chars
+    .replace(/\u00A0/g, " ")                                          // non-breaking space
+    .replace(/[/\\?%*:|"<>]/g, "-")                                   // OS-reserved chars
+    .replace(/^\.+/, "")                                              // leading dots
+    .replace(/[. ]+$/, "")                                            // trailing dots/spaces
+    .replace(/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)/i, "_$1$2") // Windows reserved names
+    .trim();
+  return cleaned || "untitled";
 }
 
 /** Strips script tags from HTML to prevent XSS when opening exported files. */
