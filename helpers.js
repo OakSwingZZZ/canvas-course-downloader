@@ -58,15 +58,21 @@ function sanitizeHtml(html) {
 }
 
 /**
- * Removes the kind of empty-tag litter that Canvas's WYSIWYG editor leaves
- * behind. Conservative — only strips tags whose contents are whitespace-only
- * (or a single &nbsp;), and leaves anything with real content untouched.
+ * Removes empty-tag litter that Canvas's WYSIWYG editor leaves behind, while
+ * preserving any whitespace those tags were holding.
+ *
+ * Apple's pasteboard wraps single spaces in `<span class="Apple-converted-space">`
+ * to keep consecutive whitespace intact, and Canvas saves those spans verbatim.
+ * Stripping the spans entirely mashes adjacent words together ("Overall
+ * description" → "Overalldescription"), so we keep the inner whitespace and
+ * only shed the surrounding tags. Empty paragraphs are removed — their job
+ * is vertical spacing, which the surrounding paragraph layout already provides.
  */
 function cleanCanvasHtml(html) {
   if (!html) return "";
   return html
-    .replace(/<p[^>]*>\s*(?:&nbsp;| )?\s*<\/p>/gi, "")
-    .replace(/<span[^>]*>\s*(?:&nbsp;| )?\s*<\/span>/gi, "");
+    .replace(/<p[^>]*>\s*(?:&nbsp;)?\s*<\/p>/gi, "")
+    .replace(/<span[^>]*>(\s*(?:&nbsp;)?\s*)<\/span>/gi, "$1");
 }
 
 /**

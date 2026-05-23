@@ -82,7 +82,10 @@
 
     // --- cleanCanvasHtml ---
     assertEqual("cleanCanvasHtml: removes empty p with nbsp", cleanCanvasHtml("<p>&nbsp;</p>"), "");
-    assertEqual("cleanCanvasHtml: removes empty span with nbsp", cleanCanvasHtml("<span>&nbsp;</span>"), "");
+    assertEqual("cleanCanvasHtml: removes truly empty p", cleanCanvasHtml("<p></p>"), "");
+    assertEqual("cleanCanvasHtml: preserves space inside Apple-converted span", cleanCanvasHtml('Overall<span class="Apple-converted-space"> </span>description'), "Overall description");
+    assertEqual("cleanCanvasHtml: preserves nbsp inside span", cleanCanvasHtml("<span>&nbsp;</span>"), "&nbsp;");
+    assertEqual("cleanCanvasHtml: strips truly empty span", cleanCanvasHtml("<span></span>"), "");
     assertEqual("cleanCanvasHtml: leaves p with real content alone", cleanCanvasHtml("<p>real text</p>"), "<p>real text</p>");
     assertEqual("cleanCanvasHtml: leaves span with real content alone", cleanCanvasHtml('<span style="color:red">x</span>'), '<span style="color:red">x</span>');
     assertEqual("cleanCanvasHtml: empty input returns empty string", cleanCanvasHtml(""), "");
