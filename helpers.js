@@ -52,27 +52,72 @@ function sanitizeFilename(name) {
   return cleaned || "untitled";
 }
 
-/** Strips script tags from HTML to prevent XSS when opening exported files. */
+/**
+ * Strips potentially-dangerous markup before saving HTML to disk. Walks the
+ * parsed DOM (via `<template>`, which parses inertly — no script execution,
+ * no resource loading) rather than using a regex, because nested / oddly-formed
+ * markup is the rule with WYSIWYG-edited content, not the exception.
+ *
+ * Removes: <script>, <noscript>, every `on*` event-handler attribute, and any
+ * `href`/`src` whose value uses the `javascript:` pseudo-protocol.
+ */
 function sanitizeHtml(html) {
-  return html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
+  if (!html) return "";
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
+  for (const el of [...tpl.content.querySelectorAll("script, noscript")]) {
+    el.remove();
+  }
+  for (const el of [...tpl.content.querySelectorAll("*")]) {
+    for (const attr of [...el.attributes]) {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith("on")) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if ((name === "href" || name === "src") && /^\s*javascript:/i.test(attr.value)) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  }
+  return tpl.innerHTML;
 }
 
 /**
  * Removes empty-tag litter that Canvas's WYSIWYG editor leaves behind, while
  * preserving any whitespace those tags were holding.
  *
- * Apple's pasteboard wraps single spaces in `<span class="Apple-converted-space">`
- * to keep consecutive whitespace intact, and Canvas saves those spans verbatim.
- * Stripping the spans entirely mashes adjacent words together ("Overall
- * description" → "Overalldescription"), so we keep the inner whitespace and
- * only shed the surrounding tags. Empty paragraphs are removed — their job
- * is vertical spacing, which the surrounding paragraph layout already provides.
+ * Walks the parsed DOM (via `<template>`) rather than regex — earlier regex
+ * versions of this function silently ate load-bearing whitespace inside
+ * `<span class="Apple-converted-space"> </span>` tags that Apple's pasteboard
+ * inserts between words, mashing them together ("Overall description" →
+ * "Overalldescription"). The DOM walker handles nesting and attributes
+ * robustly and survives every variation we hit in real Canvas content.
+ *
+ * - Empty paragraphs are removed (their job is vertical spacing, which the
+ *   surrounding paragraph layout already provides). Paragraphs containing
+ *   inline media (img/br/hr/svg/video/iframe) are kept even with no text.
+ * - Whitespace-only spans are unwrapped — the inner whitespace is preserved
+ *   as a text node so the surrounding words stay separated.
  */
 function cleanCanvasHtml(html) {
   if (!html) return "";
-  return html
-    .replace(/<p[^>]*>\s*(?:&nbsp;)?\s*<\/p>/gi, "")
-    .replace(/<span[^>]*>(\s*(?:&nbsp;)?\s*)<\/span>/gi, "$1");
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
+
+  for (const p of [...tpl.content.querySelectorAll("p")]) {
+    if (!p.textContent.trim() && !p.querySelector("img, br, hr, svg, video, iframe")) {
+      p.remove();
+    }
+  }
+
+  for (const span of [...tpl.content.querySelectorAll("span")]) {
+    if (!span.querySelector("*") && !span.textContent.trim()) {
+      span.replaceWith(document.createTextNode(span.textContent));
+    }
+  }
+
+  return tpl.innerHTML;
 }
 
 /**

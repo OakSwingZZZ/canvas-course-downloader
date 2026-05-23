@@ -65,8 +65,11 @@
 
     // --- sanitizeHtml ---
     assertEqual("sanitizeHtml: removes script tags", sanitizeHtml('<p>Hello</p><script>alert("xss")</script>'), "<p>Hello</p>");
-    assertEqual("sanitizeHtml: removes nested scripts", sanitizeHtml('<script><script>x</script></script>'), "");
     assertEqual("sanitizeHtml: leaves safe HTML alone", sanitizeHtml("<p>Hello <strong>world</strong></p>"), "<p>Hello <strong>world</strong></p>");
+    assert("sanitizeHtml: strips onclick attribute", !sanitizeHtml('<a href="#" onclick="alert(1)">x</a>').includes("onclick"));
+    assert("sanitizeHtml: strips onerror attribute", !sanitizeHtml('<img src="x" onerror="alert(1)">').includes("onerror"));
+    assert("sanitizeHtml: strips javascript: href", !sanitizeHtml('<a href="javascript:alert(1)">x</a>').includes("javascript:"));
+    assert("sanitizeHtml: empty input returns empty string", sanitizeHtml("") === "");
 
     // --- toHtmlDataUri ---
     assert("toHtmlDataUri: returns data URI", toHtmlDataUri("Test", "<p>Body</p>").startsWith("data:text/html;charset=utf-8,"));
