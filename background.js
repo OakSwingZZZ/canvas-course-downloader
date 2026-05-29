@@ -20,6 +20,53 @@ let downloadSettings = { conflictAction: "uniquify", throttleMs: 250, folderPref
 const chromeIdToJob = new Map();
 
 // ---------------------------------------------------------------------------
+// State persistence (chrome.storage.session)
+// ---------------------------------------------------------------------------
+
+// MV3 service workers idle out after ~30 s of inactivity, which wipes every
+// global above. Persisting to session storage lets us rehydrate when the
+// worker is woken by an event (e.g. chrome.downloads.onChanged) so in-flight
+// queues don't get stranded mid-batch on long courses.
+
+let stateLoadPromise = null;
+
+function ensureStateLoaded() {
+  if (!stateLoadPromise) {
+    stateLoadPromise = chrome.storage.session.get({
+      jobs: [],
+      nextJobId: 0,
+      isProcessing: false,
+      cancelled: false,
+      sourceTabId: null,
+      downloadSettings: { conflictAction: "uniquify", throttleMs: 250, folderPrefix: "" },
+    }).then((s) => {
+      jobs = s.jobs;
+      nextJobId = s.nextJobId;
+      isProcessing = s.isProcessing;
+      cancelled = s.cancelled;
+      sourceTabId = s.sourceTabId;
+      downloadSettings = s.downloadSettings;
+      // chromeIdToJob is a derived index; rebuild it from the loaded jobs.
+      chromeIdToJob.clear();
+      for (const j of jobs) {
+        if (j.chromeDownloadId != null) chromeIdToJob.set(j.chromeDownloadId, j);
+      }
+    });
+  }
+  return stateLoadPromise;
+}
+
+function persistState() {
+  return chrome.storage.session.set({
+    jobs, nextJobId, isProcessing, cancelled, sourceTabId, downloadSettings,
+  });
+}
+
+// Kick off the initial load so it's already in flight when the first event
+// handler awaits it.
+ensureStateLoaded();
+
+// ---------------------------------------------------------------------------
 // Status helpers
 // ---------------------------------------------------------------------------
 
@@ -80,19 +127,22 @@ function notifyCompletion() {
 // Download tracking via chrome.downloads.onChanged
 // ---------------------------------------------------------------------------
 
-chrome.downloads.onChanged.addListener((delta) => {
+chrome.downloads.onChanged.addListener(async (delta) => {
+  await ensureStateLoaded();
   const job = chromeIdToJob.get(delta.id);
   if (!job) return;
 
   if (delta.state?.current === "complete") {
     job.state = STATE.COMPLETE;
     chromeIdToJob.delete(delta.id);
+    await persistState();
     broadcastStatus();
     scheduleNext();
   } else if (delta.state?.current === "interrupted") {
     job.state = STATE.FAILED;
     job.error = delta.error?.current || "Download interrupted";
     chromeIdToJob.delete(delta.id);
+    await persistState();
     broadcastStatus();
     scheduleNext();
   }
@@ -106,9 +156,10 @@ function scheduleNext() {
   setTimeout(processQueue, downloadSettings.throttleMs || 250);
 }
 
-function processQueue() {
+async function processQueue() {
   if (cancelled) {
     isProcessing = false;
+    await persistState();
     const status = getStatus();
     if (status.done && jobs.length > 0) notifyCompletion();
     broadcastStatus();
@@ -118,6 +169,7 @@ function processQueue() {
   const nextJob = jobs.find((j) => j.state === STATE.QUEUED);
   if (!nextJob) {
     isProcessing = false;
+    await persistState();
     const status = getStatus();
     if (status.done && jobs.length > 0) notifyCompletion();
     broadcastStatus();
@@ -126,32 +178,32 @@ function processQueue() {
 
   isProcessing = true;
   nextJob.state = STATE.DOWNLOADING;
+  await persistState();
   broadcastStatus();
 
   const sanitizedName = nextJob.filename.replace(/[/\\?%*:|"<>]/g, "-");
   let fullPath = `${nextJob.path}${sanitizedName}`;
   if (fullPath.startsWith("/")) fullPath = fullPath.substring(1);
 
-  const conflictAction = downloadSettings.conflictAction === "skip" ? "uniquify" : downloadSettings.conflictAction;
-  chrome.downloads.download(
-    { url: nextJob.url, filename: fullPath, conflictAction },
-    (downloadId) => {
-      if (chrome.runtime.lastError || !downloadId) {
-        nextJob.state = STATE.FAILED;
-        nextJob.error = chrome.runtime.lastError?.message || "Download failed to start";
-        broadcastStatus();
-        scheduleNext();
-      } else if (cancelled) {
-        // User cancelled while this job was mid-handshake with chrome.downloads.
-        // Cancel the started download immediately so the file isn't saved.
-        chrome.downloads.cancel(downloadId);
-      } else {
-        nextJob.chromeDownloadId = downloadId;
-        chromeIdToJob.set(downloadId, nextJob);
-        // onChanged listener handles completion/failure from here
-      }
+  try {
+    const downloadId = await chrome.downloads.download({ url: nextJob.url, filename: fullPath, conflictAction: downloadSettings.conflictAction });
+    if (cancelled) {
+      // User cancelled while this job was mid-handshake with chrome.downloads.
+      // Cancel the started download immediately so the file isn't saved.
+      chrome.downloads.cancel(downloadId);
+    } else {
+      nextJob.chromeDownloadId = downloadId;
+      chromeIdToJob.set(downloadId, nextJob);
+      await persistState();
+      // onChanged listener handles completion/failure from here
     }
-  );
+  } catch (err) {
+    nextJob.state = STATE.FAILED;
+    nextJob.error = err?.message || "Download failed to start";
+    await persistState();
+    broadcastStatus();
+    scheduleNext();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -175,79 +227,90 @@ chrome.commands.onCommand.addListener((command) => {
 // ---------------------------------------------------------------------------
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "START_DOWNLOAD") {
-    const { files, courseName, conflictAction, throttleMs, folderPrefix } = message.payload;
-    const safeName = courseName.replace(/[/\\?%*:|"<>]/g, "-");
+  // Async IIFE + `return true` keeps the message channel open across the
+  // `await ensureStateLoaded()` and any subsequent `await persistState()` so
+  // sendResponse still reaches the caller after the worker rehydrates.
+  (async () => {
+    await ensureStateLoaded();
 
-    // Store settings for this batch
-    downloadSettings = {
-      conflictAction: conflictAction || "uniquify",
-      throttleMs: throttleMs || 250,
-      folderPrefix: (folderPrefix || "").replace(/[/\\?%*:|"<>]/g, "-"),
-    };
+    if (message.type === "START_DOWNLOAD") {
+      const { files, courseName, conflictAction, throttleMs, folderPrefix } = message.payload;
+      const safeName = courseName.replace(/[/\\?%*:|"<>]/g, "-");
 
-    // Reset if previous batch is done
-    const prev = getStatus();
-    if (prev.done || jobs.length === 0) {
-      jobs = [];
-      nextJobId = 0;
-      cancelled = false;
-      chromeIdToJob.clear();
-    }
+      // Store settings for this batch
+      downloadSettings = {
+        conflictAction: conflictAction || "uniquify",
+        throttleMs: throttleMs || 250,
+        folderPrefix: (folderPrefix || "").replace(/[/\\?%*:|"<>]/g, "-"),
+      };
 
-    sourceTabId = sender.tab?.id || sourceTabId;
-
-    const prefix = downloadSettings.folderPrefix ? `${downloadSettings.folderPrefix}/` : "";
-    const newJobs = files.map((file) => ({
-      id: nextJobId++,
-      url: file.url,
-      filename: file.filename,
-      path: `${prefix}${safeName}/${file.path}`.replace(/\/+/g, "/"),
-      state: STATE.QUEUED,
-      chromeDownloadId: null,
-      error: null,
-    }));
-
-    jobs.push(...newJobs);
-    broadcastStatus();
-    if (!isProcessing) processQueue();
-
-    sendResponse({ status: "queued", count: newJobs.length });
-  } else if (message.type === "GET_DOWNLOAD_STATUS") {
-    sendResponse(getStatus());
-  } else if (message.type === "RETRY_FAILED") {
-    const failedJobs = jobs.filter((j) => j.state === STATE.FAILED);
-    failedJobs.forEach((j) => {
-      j.state = STATE.QUEUED;
-      j.error = null;
-      j.chromeDownloadId = null;
-    });
-    cancelled = false;
-    broadcastStatus();
-    if (!isProcessing && failedJobs.length > 0) processQueue();
-    sendResponse({ status: "retrying", count: failedJobs.length });
-  } else if (message.type === "OPEN_OPTIONS") {
-    chrome.runtime.openOptionsPage();
-    sendResponse({ status: "ok" });
-  } else if (message.type === "CANCEL_DOWNLOADS") {
-    cancelled = true;
-    const activeJob = jobs.find((j) => j.state === STATE.DOWNLOADING);
-    if (activeJob) {
-      if (activeJob.chromeDownloadId) {
-        chrome.downloads.cancel(activeJob.chromeDownloadId);
-        chromeIdToJob.delete(activeJob.chromeDownloadId);
+      // Reset if previous batch is done
+      const prev = getStatus();
+      if (prev.done || jobs.length === 0) {
+        jobs = [];
+        nextJobId = 0;
+        cancelled = false;
+        chromeIdToJob.clear();
       }
-      activeJob.state = STATE.FAILED;
-      activeJob.error = "Cancelled";
-    }
-    jobs
-      .filter((j) => j.state === STATE.QUEUED)
-      .forEach((j) => {
-        j.state = STATE.FAILED;
-        j.error = "Cancelled";
+
+      sourceTabId = sender.tab?.id || sourceTabId;
+
+      const prefix = downloadSettings.folderPrefix ? `${downloadSettings.folderPrefix}/` : "";
+      const newJobs = files.map((file) => ({
+        id: nextJobId++,
+        url: file.url,
+        filename: file.filename,
+        path: `${prefix}${safeName}/${file.path}`.replace(/\/+/g, "/"),
+        state: STATE.QUEUED,
+        chromeDownloadId: null,
+        error: null,
+      }));
+
+      jobs.push(...newJobs);
+      await persistState();
+      broadcastStatus();
+      if (!isProcessing) processQueue();
+
+      sendResponse({ status: "queued", count: newJobs.length });
+    } else if (message.type === "GET_DOWNLOAD_STATUS") {
+      sendResponse(getStatus());
+    } else if (message.type === "RETRY_FAILED") {
+      const failedJobs = jobs.filter((j) => j.state === STATE.FAILED);
+      failedJobs.forEach((j) => {
+        j.state = STATE.QUEUED;
+        j.error = null;
+        j.chromeDownloadId = null;
       });
-    isProcessing = false;
-    broadcastStatus();
-    sendResponse({ status: "cancelled" });
-  }
+      cancelled = false;
+      await persistState();
+      broadcastStatus();
+      if (!isProcessing && failedJobs.length > 0) processQueue();
+      sendResponse({ status: "retrying", count: failedJobs.length });
+    } else if (message.type === "OPEN_OPTIONS") {
+      chrome.runtime.openOptionsPage();
+      sendResponse({ status: "ok" });
+    } else if (message.type === "CANCEL_DOWNLOADS") {
+      cancelled = true;
+      const activeJob = jobs.find((j) => j.state === STATE.DOWNLOADING);
+      if (activeJob) {
+        if (activeJob.chromeDownloadId) {
+          chrome.downloads.cancel(activeJob.chromeDownloadId);
+          chromeIdToJob.delete(activeJob.chromeDownloadId);
+        }
+        activeJob.state = STATE.FAILED;
+        activeJob.error = "Cancelled";
+      }
+      jobs
+        .filter((j) => j.state === STATE.QUEUED)
+        .forEach((j) => {
+          j.state = STATE.FAILED;
+          j.error = "Cancelled";
+        });
+      isProcessing = false;
+      await persistState();
+      broadcastStatus();
+      sendResponse({ status: "cancelled" });
+    }
+  })();
+  return true;
 });
