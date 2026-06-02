@@ -20,7 +20,7 @@ const DEFAULTS = {
   conflictAction: "uniquify",
   throttleMs: 250,
   folderPrefix: "",
-  zipMode: false,
+  zipMode: true,
   incrementalMode: false,
   excludeVideos: false,
   maxFileSizeMB: 0,

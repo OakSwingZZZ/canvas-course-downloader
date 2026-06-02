@@ -18,7 +18,7 @@ const SETTING_DEFAULTS = {
   conflictAction: "uniquify",
   throttleMs: 250,
   folderPrefix: "",
-  zipMode: false,
+  zipMode: true,
   incrementalMode: false,
   excludeVideos: false,
   maxFileSizeMB: 0,
@@ -54,6 +54,21 @@ function fmtPoints(v) {
 }
 
 /**
+ * Points label for one rubric rating tier. When the criterion uses point ranges
+ * (criterion_use_range), Canvas shows each tier as "high to >low", where low is
+ * the next lower tier's points (exclusive). Otherwise it's a single number.
+ * Mirrors dlxmax's rating_points_label so range rubrics read correctly.
+ */
+function ratingPointsLabel(points, allPoints, useRange) {
+  if (points == null) return "";
+  const p = Number(points);
+  if (!useRange || Number.isNaN(p)) return fmtPoints(points);
+  const lowers = allPoints.filter((x) => x != null && Number(x) < p).map(Number);
+  const low = lowers.length ? Math.max(...lowers) : 0;
+  return `${fmtPoints(p)} to >${fmtPoints(low)}`;
+}
+
+/**
  * Renders a rubric *definition* (criteria + rating tiers). Part of the
  * assignment/quiz itself, so it's shown to students and teachers alike.
  */
@@ -61,8 +76,10 @@ function renderRubricDefinition(rubric) {
   if (!Array.isArray(rubric) || rubric.length === 0) return "";
   let html = "<h3>Rubric</h3><table><thead><tr><th>Criterion</th><th>Points</th><th>Rating tiers</th></tr></thead><tbody>";
   for (const crit of rubric) {
+    const useRange = !!crit.criterion_use_range;
+    const allPts = (crit.ratings || []).map((r) => r.points);
     const tiers = (crit.ratings || [])
-      .map((r) => `<div><strong>${fmtPoints(r.points)}</strong>: ${escapeHtml(r.description || "")}${r.long_description ? ` — ${escapeHtml(r.long_description)}` : ""}</div>`)
+      .map((r) => `<div><strong>${escapeHtml(ratingPointsLabel(r.points, allPts, useRange))}</strong>: ${escapeHtml(r.description || "")}${r.long_description ? ` — ${escapeHtml(r.long_description)}` : ""}</div>`)
       .join("");
     html += `<tr><td><strong>${escapeHtml(crit.description || "")}</strong>${crit.long_description ? `<div>${escapeHtml(crit.long_description)}</div>` : ""}</td><td>${fmtPoints(crit.points)}</td><td>${tiers}</td></tr>`;
   }
@@ -320,7 +337,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   let students = [];
   const userIdToName = new Map();
   const userIdToSection = new Map();
-  if (isTeacher && (types.grades || types.quizzes)) {
+  if (isTeacher && (types.grades || types.quizzes || types.assignments || types.discussions)) {
     log("Fetching roster...");
     students = await fetchAllPages(api("users?enrollment_type[]=student&per_page=100"));
     for (const s of students) userIdToName.set(String(s.id), s.sortable_name || s.name || `user_${s.id}`);
@@ -383,12 +400,19 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   }
 
   // --- Hidden file extraction ------------------------------------------------
+  // Scans both anchors (a[href]) and embedded media (img/iframe/source[src]) for
+  // /files/<id> references. Canvas embeds inline images as <img src=".../files/
+  // <id>/preview">, which are otherwise neither downloaded nor link-rewritten —
+  // so without this they render as broken images in the offline archive.
   async function extractLinkedFiles(html, source) {
     const doc = new DOMParser().parseFromString(html, "text/html");
-    const links = doc.querySelectorAll('a[href*="/files/"]');
+    const links = doc.querySelectorAll(
+      'a[href*="/files/"], img[src*="/files/"], iframe[src*="/files/"], source[src*="/files/"]'
+    );
 
     for (const link of links) {
-      const id = link.getAttribute("href")?.match(/\/files\/(\d+)/)?.[1];
+      const ref = link.getAttribute("href") || link.getAttribute("src") || "";
+      const id = ref.match(/\/files\/(\d+)/)?.[1];
       if (!id || seenFileIds.has(id)) continue;
 
       try {
@@ -401,7 +425,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
           seenFileIds.add(fileId);
           filesToDownload.push({
             url: data.url,
-            filename: data.display_name || link.textContent.trim() || `file_${id}`,
+            filename: data.display_name || (link.textContent || "").trim() || `file_${id}`,
             path: "Extracted_Files/",
             size: data.size || 0,
             contentType: data["content-type"] || "",
@@ -453,35 +477,57 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   }
 
   // --- Student submissions (teacher only) ------------------------------------
-  // For each assignment, pull every student's submission: attached files, the
-  // typed/online body, grade and instructor comments — organized as
-  // Submissions/<Assignment>/<Student>/. Skipped entirely for students (whose
-  // session would only return their own submission anyway).
+  // Per assignment that accepts online submissions: a _grades.csv covering every
+  // student (score, grade, status, section), plus a per-student page and that
+  // student's attached files ONLY for students who actually submitted something.
+  // Files live flat in Submissions/<Assignment>/ as "<Student> - <file>" rather
+  // than a folder per student (per dlxmax's feedback — that nesting was bloat).
+  // Assignments with no online submission type are skipped here; their scores
+  // are already in Gradebook.csv.
+  const ONLINE_SUBMISSION_TYPES = new Set([
+    "online_text_entry", "online_upload", "online_url", "media_recording", "student_annotation", "discussion_topic",
+  ]);
   if (isTeacher && types.assignments && assignments.length > 0) {
     log("Fetching student submissions...");
+    const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     for (const a of assignments) {
+      if (!(a.submission_types || []).some((t) => ONLINE_SUBMISSION_TYPES.has(t))) continue;
+
       const safeAssignment = sanitizeFilename(a.name).substring(0, 80);
+      const folder = `Submissions/${safeAssignment}/`;
       const subs = await fetchAllPages(
         api(`assignments/${a.id}/submissions?per_page=100&include[]=user&include[]=submission_comments&include[]=rubric_assessment`)
       );
+      if (subs.length === 0) continue;
+
+      const gradeRows = ['"Student","Section","Status","Submitted At","Score","Grade","Late","Missing"'];
+      let anyRealSubmission = false;
 
       for (const s of subs) {
-        // Skip slots that were never submitted and never graded.
-        if (s.workflow_state === "unsubmitted" && s.score == null && !s.submission_comments?.length) continue;
-
         const studentName = s.user?.sortable_name || s.user?.name || `user_${s.user_id}`;
-        const safeStudent = sanitizeFilename(studentName).substring(0, 80);
-        const studentPath = `Submissions/${safeAssignment}/${safeStudent}/`;
+        const section = userIdToSection.get(String(s.user_id)) || "";
+        gradeRows.push([
+          studentName, section, s.workflow_state || "", s.submitted_at ? formatDate(s.submitted_at) : "",
+          s.score ?? "", s.grade ?? "", s.late ? "yes" : "", s.missing ? "yes" : "",
+        ].map(csvCell).join(","));
 
-        // Submitted file attachments.
+        // Only students who actually submitted content get a page + files; the
+        // rest are captured by the grades CSV row above.
+        const hasContent = s.submitted_at || (s.attachments && s.attachments.length) || s.body || s.url;
+        if (!hasContent) continue;
+        anyRealSubmission = true;
+
+        const safeStudent = sanitizeFilename(studentName).substring(0, 80);
+
         for (const att of s.attachments || []) {
           const fileId = String(att.id || "");
           if (att.url && fileId && !seenFileIds.has(fileId)) {
             seenFileIds.add(fileId);
+            const base = att.display_name || att.filename || `attachment_${fileId}`;
             filesToDownload.push({
               url: att.url,
-              filename: att.display_name || att.filename || `attachment_${fileId}`,
-              path: studentPath,
+              filename: `${safeStudent} - ${base}`,
+              path: folder,
               size: att.size || 0,
               contentType: att["content-type"] || "",
               canvasId: fileId,
@@ -489,30 +535,37 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
           }
         }
 
-        // Per-student summary doc: grade, state, text/URL entry, comments.
-        let body = `<p><strong>Student:</strong> ${studentName}</p>`;
-        body += `<p><strong>Status:</strong> ${s.workflow_state || "—"}</p>`;
+        let body = `<p><strong>Student:</strong> ${escapeHtml(studentName)}${section ? ` · ${escapeHtml(section)}` : ""}</p>`;
+        body += `<p><strong>Status:</strong> ${escapeHtml(s.workflow_state || "—")}</p>`;
         if (s.submitted_at) body += `<p><strong>Submitted:</strong> ${formatDate(s.submitted_at)}</p>`;
         if (s.score != null || s.grade != null) {
-          body += `<p><strong>Grade:</strong> ${s.grade ?? ""} (${s.score ?? ""} / ${a.points_possible ?? "—"})${s.late ? " · <em>late</em>" : ""}</p>`;
+          body += `<p><strong>Grade:</strong> ${escapeHtml(String(s.grade ?? ""))} (${s.score ?? ""} / ${a.points_possible ?? "—"})${s.late ? " · <em>late</em>" : ""}</p>`;
         }
         if (s.body) {
           body += `<h3>Submission text</h3><div>${cleanCanvasHtml(s.body)}</div>`;
           if (types.linkedFiles) await extractLinkedFiles(s.body, `Submission: ${a.name} — ${studentName}`);
         }
-        if (s.url) body += `<p><strong>Submitted URL:</strong> <a href="${s.url}">${s.url}</a></p>`;
+        if (s.url) body += `<p><strong>Submitted URL:</strong> <a href="${escapeHtml(s.url)}">${escapeHtml(s.url)}</a></p>`;
         body += renderRubricAssessment(a.rubric, s.rubric_assessment);
         const comments = s.submission_comments || [];
         if (comments.length) {
           body += "<h3>Comments</h3><ul>";
           for (const c of comments) {
-            body += `<li><strong>${c.author_name || "Unknown"}</strong>${c.created_at ? ` · ${formatDate(c.created_at)}` : ""}: ${cleanCanvasHtml(c.comment || "")}</li>`;
+            body += `<li><strong>${escapeHtml(c.author_name || "Unknown")}</strong>${c.created_at ? ` · ${formatDate(c.created_at)}` : ""}: ${cleanCanvasHtml(c.comment || "")}</li>`;
           }
           body += "</ul>";
         }
 
-        filesToDownload.push(buildDocEntry(`${a.name} — ${studentName}`, body, "submission", studentPath, "submission", null));
+        filesToDownload.push(buildDocEntry(`${a.name} — ${studentName}`, body, safeStudent, folder, "submission", null));
         studentSubmissionCount++;
+      }
+
+      if (anyRealSubmission && gradeRows.length > 1) {
+        filesToDownload.push({
+          url: `data:text/csv;charset=utf-8,${encodeURIComponent(gradeRows.join("\n"))}`,
+          filename: "_grades.csv",
+          path: folder,
+        });
       }
     }
   }
@@ -605,6 +658,37 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
         } catch (err) {
           console.error(`[Canvas Downloader] Discussion thread error (${d.title}):`, err);
         }
+
+        // Graded discussions are backed by an assignment; capture per-student
+        // scores into a _grades.csv beside the topic (dlxmax: grading was missing).
+        if (d.assignment_id) {
+          try {
+            const gsubs = await fetchAllPages(
+              api(`assignments/${d.assignment_id}/submissions?per_page=100&include[]=user`)
+            );
+            const graded = gsubs.filter((s) => s.score != null || s.grade != null || s.workflow_state === "graded");
+            if (graded.length) {
+              const safeTopic = sanitizeFilename(d.title).substring(0, 80);
+              const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+              const rows = ['"Student","Section","Score","Grade","Submitted At","Workflow State"'];
+              for (const s of graded) {
+                const name = s.user?.sortable_name || s.user?.name || `user_${s.user_id}`;
+                rows.push([
+                  name, userIdToSection.get(String(s.user_id)) || "",
+                  s.score ?? "", s.grade ?? "", s.submitted_at ? formatDate(s.submitted_at) : "", s.workflow_state || "",
+                ].map(csvCell).join(","));
+              }
+              filesToDownload.push({
+                url: `data:text/csv;charset=utf-8,${encodeURIComponent(rows.join("\n"))}`,
+                filename: "_grades.csv",
+                path: `Discussions/${safeTopic}/`,
+              });
+              body += `<p><em>Graded discussion — per-student scores in <code>${safeTopic}/_grades.csv</code>.</em></p>`;
+            }
+          } catch (err) {
+            console.error(`[Canvas Downloader] Discussion grades error (${d.title}):`, err);
+          }
+        }
       }
 
       const safeName = sanitizeFilename(d.title).substring(0, 100);
@@ -632,7 +716,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
           if (item.type === "Page" && item.page_url) {
             moduleItemIdToResource.set(String(item.id), { type: "page", key: item.page_url });
           } else if (item.content_id) {
-            const typeKey = { Assignment: "assignment", Discussion: "discussion", File: "file" }[item.type];
+            const typeKey = { Assignment: "assignment", Discussion: "discussion", File: "file", Quiz: "quiz" }[item.type];
             if (typeKey) moduleItemIdToResource.set(String(item.id), { type: typeKey, key: String(item.content_id) });
           }
         }
@@ -908,13 +992,20 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
             const nameFromPayload = new Map((data.users || []).map((u) => [String(u.id), u.sortable_name || u.name]));
             const nameOf = (uid) => userIdToName.get(String(uid)) || nameFromPayload.get(String(uid)) || `user_${uid}`;
             if (qsubs.length) {
-              let table = "<h3>Student scores</h3><table><thead><tr><th>Student</th><th>Score</th><th>Attempt</th><th>Finished</th></tr></thead><tbody>";
-              const csv = ['"Student","Score","Points Possible","Attempt","Finished At","Workflow State"'];
+              // Sort by section then name so the table/CSV group by section
+              // (dlxmax's feedback: scores were lumped together, section unlabeled).
+              const sectionOf = (uid) => userIdToSection.get(String(uid)) || "";
+              qsubs.sort((x, y) =>
+                sectionOf(x.user_id).localeCompare(sectionOf(y.user_id)) ||
+                nameOf(x.user_id).localeCompare(nameOf(y.user_id)));
+              let table = "<h3>Student scores</h3><table><thead><tr><th>Student</th><th>Section</th><th>Score</th><th>Attempt</th><th>Finished</th></tr></thead><tbody>";
+              const csv = ['"Student","Section","Score","Points Possible","Attempt","Finished At","Workflow State"'];
               for (const qs of qsubs) {
                 const name = nameOf(qs.user_id);
+                const section = sectionOf(qs.user_id);
                 const score = qs.kept_score ?? qs.score ?? "";
-                table += `<tr><td>${escapeHtml(name)}</td><td>${score} / ${fmtPoints(quiz.points_possible)}</td><td>${qs.attempt ?? ""}</td><td>${qs.finished_at ? formatDate(qs.finished_at) : ""}</td></tr>`;
-                csv.push([name, score, quiz.points_possible ?? "", qs.attempt ?? "", qs.finished_at ? formatDate(qs.finished_at) : "", qs.workflow_state || ""].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
+                table += `<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(section)}</td><td>${score} / ${fmtPoints(quiz.points_possible)}</td><td>${qs.attempt ?? ""}</td><td>${qs.finished_at ? formatDate(qs.finished_at) : ""}</td></tr>`;
+                csv.push([name, section, score, quiz.points_possible ?? "", qs.attempt ?? "", qs.finished_at ? formatDate(qs.finished_at) : "", qs.workflow_state || ""].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
               }
               body += table + "</tbody></table>";
               filesToDownload.push({
@@ -1065,6 +1156,32 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     file.filename = truncateFilename(file.filename, safeCourse, file.path);
   }
 
+  // --- De-duplicate identical output paths ---------------------------------
+  // Canvas lets multiple items share a name (e.g. several quizzes titled
+  // "Unnamed quiz", or truncation collapsing two long names). Without this they
+  // map to the same path and silently overwrite each other in ZIP mode. Append
+  // " (2)", " (3)", … on collision. Runs before the URL map is built so cross-
+  // references point at the final, unique names. Case-insensitive to stay safe
+  // on macOS/Windows filesystems.
+  const usedPaths = new Set();
+  for (const file of filesToDownload) {
+    let name = file.filename;
+    let key = (file.path + name).toLowerCase();
+    if (usedPaths.has(key)) {
+      const dot = name.lastIndexOf(".");
+      const stem = dot > 0 ? name.slice(0, dot) : name;
+      const ext = dot > 0 ? name.slice(dot) : "";
+      let n = 2;
+      do {
+        name = `${stem} (${n})${ext}`;
+        key = (file.path + name).toLowerCase();
+        n++;
+      } while (usedPaths.has(key));
+      file.filename = name;
+    }
+    usedPaths.add(key);
+  }
+
   // --- Cross-reference URL map -------------------------------------------
   // Walk filesToDownload (after truncation, so paths are final) and map every
   // exported resource's Canvas URL to its local "<path><filename>" target.
@@ -1081,6 +1198,13 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     } else if (f.resourceType === "discussion" && f.resourceId) {
       urlMap.set(`${domain}/courses/${courseId}/discussion_topics/${f.resourceId}`, target);
       urlMap.set(`${domain}/courses/${courseId}/discussions/${f.resourceId}`, target);
+    } else if (f.resourceType === "quiz" && f.resourceId) {
+      urlMap.set(`${domain}/courses/${courseId}/quizzes/${f.resourceId}`, target);
+    } else if (f.resourceType === "module-index") {
+      // The Modules page links back to the Canvas /modules nav and to individual
+      // module anchors; point them all at the local Modules overview.
+      urlMap.set(`${domain}/courses/${courseId}/modules`, target);
+      for (const mod of modules) urlMap.set(`${domain}/courses/${courseId}/modules/${mod.id}`, target);
     } else if (f.canvasId) {
       urlMap.set(`${domain}/courses/${courseId}/files/${f.canvasId}`, target);
       urlMap.set(`${domain}/files/${f.canvasId}`, target);
@@ -1092,6 +1216,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     if (info.type === "page") sourceUrl = `${domain}/courses/${courseId}/pages/${info.key}`;
     else if (info.type === "assignment") sourceUrl = `${domain}/courses/${courseId}/assignments/${info.key}`;
     else if (info.type === "discussion") sourceUrl = `${domain}/courses/${courseId}/discussion_topics/${info.key}`;
+    else if (info.type === "quiz") sourceUrl = `${domain}/courses/${courseId}/quizzes/${info.key}`;
     else if (info.type === "file") sourceUrl = `${domain}/courses/${courseId}/files/${info.key}`;
     const resolved = sourceUrl && urlMap.get(sourceUrl);
     if (resolved) urlMap.set(`${domain}/courses/${courseId}/modules/items/${itemId}`, resolved);

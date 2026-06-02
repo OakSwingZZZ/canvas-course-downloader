@@ -277,6 +277,13 @@ function rewriteCanvasLinks(html, urlMap, fromPath) {
     if (!target) {
       const normalized = url.split("?")[0].split("#")[0].replace(/\/$/, "");
       target = urlMap.get(normalized);
+      // Canvas embeds files with a trailing action, e.g. /files/<id>/preview or
+      // /files/<id>/download. Fall back to the bare /files/<id> map entry so
+      // embedded images and download links resolve to the local copy.
+      if (!target) {
+        const fileMatch = normalized.match(/^(.*\/files\/\d+)(?:\/.*)?$/);
+        if (fileMatch) target = urlMap.get(fileMatch[1]);
+      }
     }
     if (!target) return match;
     return `${attr}="${relativeUrlFromTo(fromPath, target)}"`;

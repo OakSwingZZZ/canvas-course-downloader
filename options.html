@@ -291,6 +291,9 @@
   <div class="card">
     <h2>Download Behavior</h2>
     <div class="field">
+      <div class="hint"><strong>Before a large export:</strong> turn <em>off</em> "Ask where to save each file before downloading" in your browser's download settings. Otherwise the browser prompts you to pick a location for every single file, which is unworkable for a full course. (Chrome/Edge: Settings → Downloads. The <strong>ZIP</strong> option below also avoids this by producing one file.)</div>
+    </div>
+    <div class="field">
       <label for="conflict">File conflict handling</label>
       <select id="conflict">
         <option value="uniquify">Rename (add number suffix)</option>
@@ -309,7 +312,7 @@
     </div>
     <div class="toggle-row">
       <label><input type="checkbox" id="zip-mode" class="custom-checkbox"> ZIP bundling (one .zip per course)</label>
-      <div class="hint">Instead of downloading hundreds of individual files, bundle each course into a single .zip file. Much cleaner for your Downloads folder.</div>
+      <div class="hint"><strong>On by default.</strong> Bundles the whole course into a single .zip instead of hundreds of separate files — so your browser only prompts once, not per file. Much cleaner for your Downloads folder. Very large courses (over ~1.5 GB) fall back to individual files automatically.</div>
     </div>
     <div class="toggle-row">
       <label><input type="checkbox" id="incremental-mode" class="custom-checkbox"> Incremental mode (skip unchanged files)</label>
