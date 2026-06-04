@@ -476,17 +476,83 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     }
   }
 
-  // --- Student submissions (teacher only) ------------------------------------
-  // Per assignment that accepts online submissions: a _grades.csv covering every
-  // student (score, grade, status, section), plus a per-student page and that
-  // student's attached files ONLY for students who actually submitted something.
-  // Files live flat in Submissions/<Assignment>/ as "<Student> - <file>" rather
-  // than a folder per student (per dlxmax's feedback — that nesting was bloat).
-  // Assignments with no online submission type are skipped here; their scores
-  // are already in Gradebook.csv.
+  // --- Submissions -----------------------------------------------------------
+  // Per assignment that accepts online submissions, one folder per student at
+  // Submissions/<Assignment>/<Student>/ holding every attempt's files plus a page
+  // with each attempt's grade, text, and the instructor comment thread. Every
+  // attempt is kept (submission_history), not just the latest; files from older
+  // attempts are prefixed "Attempt N - ". The teacher path also writes a
+  // _grades.csv covering every student. Assignments with no online submission
+  // type are skipped — their scores already live in Gradebook.csv / Grades.csv.
   const ONLINE_SUBMISSION_TYPES = new Set([
     "online_text_entry", "online_upload", "online_url", "media_recording", "student_annotation", "discussion_topic",
   ]);
+
+  /**
+   * Renders one submission (all attempts) into `folder`: each attempt's
+   * attachments, a single page summarizing every attempt and the full comment
+   * thread. Returns true if any attempt had real submitted content. Shared by
+   * the teacher archive (every student) and the student self-export.
+   */
+  const renderSubmission = async (a, s, folder, studentName, section) => {
+    const history = s.submission_history && s.submission_history.length ? s.submission_history : [s];
+    const attempts = history.filter(
+      (h) => h.submitted_at || (h.attachments && h.attachments.length) || h.body || h.url
+    );
+    if (attempts.length === 0) return false;
+    const multi = attempts.length > 1;
+    const attemptLabel = (h) => (multi ? `Attempt ${h.attempt || "?"} - ` : "");
+
+    for (const h of attempts) {
+      for (const att of h.attachments || []) {
+        const fileId = String(att.id || "");
+        if (att.url && fileId && !seenFileIds.has(fileId)) {
+          seenFileIds.add(fileId);
+          const base = att.display_name || att.filename || `attachment_${fileId}`;
+          filesToDownload.push({
+            url: att.url,
+            filename: `${attemptLabel(h)}${base}`,
+            path: folder,
+            size: att.size || 0,
+            contentType: att["content-type"] || "",
+            canvasId: fileId,
+          });
+        }
+      }
+    }
+
+    let body = `<p><strong>Student:</strong> ${escapeHtml(studentName)}${section ? ` · ${escapeHtml(section)}` : ""}</p>`;
+    body += `<p><strong>Status:</strong> ${escapeHtml(s.workflow_state || "—")}</p>`;
+    for (const h of attempts) {
+      if (multi) body += `<h3>Attempt ${escapeHtml(String(h.attempt || "?"))}</h3>`;
+      if (h.submitted_at) body += `<p><strong>Submitted:</strong> ${formatDate(h.submitted_at)}</p>`;
+      if (h.score != null || h.grade != null) {
+        body += `<p><strong>Grade:</strong> ${escapeHtml(String(h.grade ?? ""))} (${h.score ?? ""} / ${a.points_possible ?? "—"})${h.late ? " · <em>late</em>" : ""}</p>`;
+      }
+      if (h.body) {
+        body += `<div>${cleanCanvasHtml(h.body)}</div>`;
+        if (types.linkedFiles) await extractLinkedFiles(h.body, `Submission: ${a.name} — ${studentName}`);
+      }
+      if (h.url) body += `<p><strong>Submitted URL:</strong> <a href="${escapeHtml(h.url)}">${escapeHtml(h.url)}</a></p>`;
+      const names = (h.attachments || []).map((att) => att.display_name || att.filename).filter(Boolean);
+      if (names.length) body += `<p><strong>Files:</strong> ${names.map((n) => escapeHtml(attemptLabel(h) + n)).join(", ")}</p>`;
+    }
+    body += renderRubricAssessment(a.rubric, s.rubric_assessment);
+    const comments = s.submission_comments || [];
+    if (comments.length) {
+      body += "<h3>Comments</h3><ul>";
+      for (const c of comments) {
+        const at = c.attempt ? ` · attempt ${c.attempt}` : "";
+        body += `<li><strong>${escapeHtml(c.author_name || "Unknown")}</strong>${c.created_at ? ` · ${formatDate(c.created_at)}` : ""}${at}: ${cleanCanvasHtml(c.comment || "")}</li>`;
+      }
+      body += "</ul>";
+    }
+    const stem = sanitizeFilename(studentName).substring(0, 80) || "submission";
+    filesToDownload.push(buildDocEntry(`${a.name} — ${studentName}`, body, stem, folder, "submission", null));
+    return true;
+  };
+
+  // Teacher: archive every student's submissions, plus a per-assignment grades CSV.
   if (isTeacher && types.assignments && assignments.length > 0) {
     log("Fetching student submissions...");
     const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
@@ -494,9 +560,8 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       if (!(a.submission_types || []).some((t) => ONLINE_SUBMISSION_TYPES.has(t))) continue;
 
       const safeAssignment = sanitizeFilename(a.name).substring(0, 80);
-      const folder = `Submissions/${safeAssignment}/`;
       const subs = await fetchAllPages(
-        api(`assignments/${a.id}/submissions?per_page=100&include[]=user&include[]=submission_comments&include[]=rubric_assessment`)
+        api(`assignments/${a.id}/submissions?per_page=100&include[]=user&include[]=submission_comments&include[]=submission_history&include[]=rubric_assessment`)
       );
       if (subs.length === 0) continue;
 
@@ -511,61 +576,46 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
           s.score ?? "", s.grade ?? "", s.late ? "yes" : "", s.missing ? "yes" : "",
         ].map(csvCell).join(","));
 
-        // Only students who actually submitted content get a page + files; the
-        // rest are captured by the grades CSV row above.
-        const hasContent = s.submitted_at || (s.attachments && s.attachments.length) || s.body || s.url;
-        if (!hasContent) continue;
-        anyRealSubmission = true;
-
-        const safeStudent = sanitizeFilename(studentName).substring(0, 80);
-
-        for (const att of s.attachments || []) {
-          const fileId = String(att.id || "");
-          if (att.url && fileId && !seenFileIds.has(fileId)) {
-            seenFileIds.add(fileId);
-            const base = att.display_name || att.filename || `attachment_${fileId}`;
-            filesToDownload.push({
-              url: att.url,
-              filename: `${safeStudent} - ${base}`,
-              path: folder,
-              size: att.size || 0,
-              contentType: att["content-type"] || "",
-              canvasId: fileId,
-            });
-          }
+        const safeStudent = sanitizeFilename(studentName).substring(0, 80) || `user_${s.user_id}`;
+        const folder = `Submissions/${safeAssignment}/${safeStudent}/`;
+        if (await renderSubmission(a, s, folder, studentName, section)) {
+          anyRealSubmission = true;
+          studentSubmissionCount++;
         }
-
-        let body = `<p><strong>Student:</strong> ${escapeHtml(studentName)}${section ? ` · ${escapeHtml(section)}` : ""}</p>`;
-        body += `<p><strong>Status:</strong> ${escapeHtml(s.workflow_state || "—")}</p>`;
-        if (s.submitted_at) body += `<p><strong>Submitted:</strong> ${formatDate(s.submitted_at)}</p>`;
-        if (s.score != null || s.grade != null) {
-          body += `<p><strong>Grade:</strong> ${escapeHtml(String(s.grade ?? ""))} (${s.score ?? ""} / ${a.points_possible ?? "—"})${s.late ? " · <em>late</em>" : ""}</p>`;
-        }
-        if (s.body) {
-          body += `<h3>Submission text</h3><div>${cleanCanvasHtml(s.body)}</div>`;
-          if (types.linkedFiles) await extractLinkedFiles(s.body, `Submission: ${a.name} — ${studentName}`);
-        }
-        if (s.url) body += `<p><strong>Submitted URL:</strong> <a href="${escapeHtml(s.url)}">${escapeHtml(s.url)}</a></p>`;
-        body += renderRubricAssessment(a.rubric, s.rubric_assessment);
-        const comments = s.submission_comments || [];
-        if (comments.length) {
-          body += "<h3>Comments</h3><ul>";
-          for (const c of comments) {
-            body += `<li><strong>${escapeHtml(c.author_name || "Unknown")}</strong>${c.created_at ? ` · ${formatDate(c.created_at)}` : ""}: ${cleanCanvasHtml(c.comment || "")}</li>`;
-          }
-          body += "</ul>";
-        }
-
-        filesToDownload.push(buildDocEntry(`${a.name} — ${studentName}`, body, safeStudent, folder, "submission", null));
-        studentSubmissionCount++;
       }
 
       if (anyRealSubmission && gradeRows.length > 1) {
         filesToDownload.push({
           url: `data:text/csv;charset=utf-8,${encodeURIComponent(gradeRows.join("\n"))}`,
           filename: "_grades.csv",
-          path: folder,
+          path: `Submissions/${safeAssignment}/`,
         });
+      }
+    }
+  }
+
+  // Student: archive your own submissions (every attempt) the same way. The
+  // /self endpoint is always readable for your own work, so this needs no
+  // roster and runs whenever a student requests assignments.
+  if (!isTeacher && types.assignments && assignments.length > 0) {
+    log("Fetching your submissions...");
+    for (const a of assignments) {
+      if (!(a.submission_types || []).some((t) => ONLINE_SUBMISSION_TYPES.has(t))) continue;
+      let s;
+      try {
+        const res = await fetchWithRetry(
+          api(`assignments/${a.id}/submissions/self?include[]=user&include[]=submission_comments&include[]=submission_history&include[]=rubric_assessment`)
+        );
+        if (!res.ok) continue;
+        s = await res.json();
+      } catch (err) {
+        console.warn(`[Canvas Downloader] Own submission fetch failed for ${a.name}:`, err);
+        continue;
+      }
+      const safeAssignment = sanitizeFilename(a.name).substring(0, 80);
+      const studentName = s.user?.sortable_name || s.user?.name || "You";
+      if (await renderSubmission(a, s, `Submissions/${safeAssignment}/`, studentName, "")) {
+        studentSubmissionCount++;
       }
     }
   }
