@@ -43,6 +43,24 @@
       color: var(--text);
       letter-spacing: -0.01em;
     }
+    .icon-btn {
+      margin-left: auto;
+      width: 30px; height: 30px;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      border: none;
+      background: transparent;
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--text-faint);
+      transition: background 0.12s, color 0.12s, transform 0.08s;
+    }
+    .icon-btn:hover { background: var(--hover); color: var(--text); }
+    .icon-btn:active { transform: scale(0.96); }
+    .icon-btn svg { width: 16px; height: 16px; }
 
     /* Status pill */
     #status {
@@ -189,23 +207,6 @@
     }
     button#downloadBtn svg { width: 14px; height: 14px; }
 
-    /* Footer */
-    .footer {
-      margin-top: 12px;
-      padding-top: 10px;
-      border-top: 1px solid var(--border);
-      font-size: 10.5px;
-      color: var(--text-faint);
-      text-align: center;
-      line-height: 1.6;
-    }
-    .footer a {
-      color: var(--text-muted);
-      text-decoration: none;
-      transition: color 0.12s;
-    }
-    .footer a:hover { color: var(--text); }
-
     /* Feedback prompt */
     .feedback-card {
       margin-top: 12px;
@@ -275,6 +276,12 @@
   <div class="header">
     <img class="brand-mark" src="icons/icon-128.png" alt="">
     <h2>Course Downloader</h2>
+    <button class="icon-btn" id="settingsLink" title="Settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
   </div>
 
   <div id="status">Checking page...</div>
@@ -316,13 +323,10 @@
       Glad to hear it! A quick <a href="https://chromewebstore.google.com/detail/mmnmcnffbkcnhcjiidmdnaclpfeekiol/reviews" target="_blank">review on the Web Store</a> helps other students find it.
     </div>
     <div class="feedback-followup" id="feedbackNegative">
-      Sorry about that. <a href="https://github.com/jasp-nerd/canvas-course-downloader/issues/new" target="_blank">Tell us what went wrong</a> — we read every report.
+      Sorry about that. <a href="https://github.com/jasp-nerd/canvas-course-downloader/issues/new?labels=bug" target="_blank" rel="noopener">Tell us what went wrong</a> — we read every report.
     </div>
   </div>
 
-  <div class="footer">
-    <a href="#" id="settingsLink">Settings</a>
-  </div>
   <script src="popup.js"></script>
 </body>
 </html>

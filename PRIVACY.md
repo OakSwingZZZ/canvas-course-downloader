@@ -27,7 +27,8 @@ The extension requests the following browser permissions:
 | `downloads` | To save course files to your computer |
 | `notifications` | To notify you when a download batch finishes |
 | `storage` | To save your settings and track which files have been downloaded in incremental mode |
-| Host permissions (`https://*/*`) | Canvas LMS can be hosted on any domain, so the extension needs to detect Canvas on any HTTPS page |
+| Content script (`https://*/*`) | Canvas LMS can be hosted on any domain, so the content script loads on any HTTPS page to detect Canvas. It exits immediately on non-Canvas pages |
+| Host permissions (`*://*.instructure.com/*`) | Elevated access for Instructure-hosted Canvas instances. On self-hosted instances the extension works through same-origin requests from the page you're already on |
 
 ## Third-Party Services
 

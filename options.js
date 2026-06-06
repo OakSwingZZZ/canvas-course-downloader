@@ -82,6 +82,11 @@ function applyPreset(name) {
   setActivePreset(name);
 }
 
+function updateFileSizeFieldVisibility() {
+  const on = document.getElementById("limit-file-size").checked;
+  document.getElementById("max-file-size-field").style.display = on ? "" : "none";
+}
+
 function loadSettings() {
   chrome.storage.sync.get(DEFAULTS, (settings) => {
     // Content types
@@ -96,8 +101,10 @@ function loadSettings() {
     document.getElementById("zip-mode").checked = settings.zipMode;
     document.getElementById("incremental-mode").checked = settings.incrementalMode;
     document.getElementById("exclude-videos").checked = settings.excludeVideos;
+    document.getElementById("limit-file-size").checked = settings.maxFileSizeMB > 0;
     document.getElementById("max-file-size").value = settings.maxFileSizeMB || "";
     document.getElementById("export-format").value = settings.exportFormat || "html";
+    updateFileSizeFieldVisibility();
 
     // Preset highlight
     const preset = detectPreset();
@@ -117,7 +124,9 @@ function saveSettings() {
     zipMode: document.getElementById("zip-mode").checked,
     incrementalMode: document.getElementById("incremental-mode").checked,
     excludeVideos: document.getElementById("exclude-videos").checked,
-    maxFileSizeMB: parseInt(document.getElementById("max-file-size").value, 10) || 0,
+    maxFileSizeMB: document.getElementById("limit-file-size").checked
+      ? parseInt(document.getElementById("max-file-size").value, 10) || 0
+      : 0,
     preset: detectPreset(),
     exportFormat: document.getElementById("export-format").value,
   };
@@ -129,8 +138,24 @@ function saveSettings() {
   });
 }
 
+function initNav() {
+  const items = document.querySelectorAll(".nav-item");
+  const panels = document.querySelectorAll(".panel");
+  const content = document.querySelector(".content");
+
+  document.getElementById("nav").addEventListener("click", (e) => {
+    const btn = e.target.closest(".nav-item");
+    if (!btn) return;
+    const section = btn.dataset.section;
+    items.forEach((i) => i.classList.toggle("active", i === btn));
+    panels.forEach((p) => p.classList.toggle("active", p.dataset.section === section));
+    if (content) content.scrollTop = 0;
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   loadSettings();
+  initNav();
 
   // Preset buttons
   document.getElementById("preset-bar").addEventListener("click", (e) => {
@@ -143,6 +168,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("content-types").addEventListener("change", () => {
     setActivePreset(detectPreset());
   });
+
+  // Show/hide the max file size input based on its toggle
+  document.getElementById("limit-file-size").addEventListener("change", updateFileSizeFieldVisibility);
 
   // Save
   document.getElementById("save-btn").addEventListener("click", saveSettings);
