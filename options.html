@@ -118,6 +118,16 @@
       transition: background 0.1s;
     }
     .checkbox-group label:hover { background: var(--hover); }
+    .ct-subhead {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      margin: 12px 0 2px;
+      padding: 0 8px;
+    }
+    .ct-subhead:first-child { margin-top: 0; }
     .checkbox-group input[type="checkbox"],
     input.custom-checkbox {
       width: 16px;
@@ -274,18 +284,22 @@
 
     <h2>Content Types</h2>
     <div class="checkbox-group" id="content-types">
+      <div class="ct-subhead">Course content</div>
       <label><input type="checkbox" data-key="files"> Files &amp; folders</label>
       <label><input type="checkbox" data-key="pages"> Pages</label>
       <label><input type="checkbox" data-key="assignments"> Assignments</label>
-      <label><input type="checkbox" data-key="discussions"> Discussions</label>
-      <label><input type="checkbox" data-key="announcements"> Announcements</label>
-      <label><input type="checkbox" data-key="modules"> Modules</label>
       <label><input type="checkbox" data-key="syllabus"> Syllabus</label>
+      <label><input type="checkbox" data-key="modules"> Modules</label>
+      <label><input type="checkbox" data-key="announcements"> Announcements</label>
+      <label><input type="checkbox" data-key="linkedFiles"> Linked / extracted files</label>
+
+      <div class="ct-subhead">Student data &amp; grades</div>
+      <label><input type="checkbox" data-key="submissions"> Student submissions</label>
+      <label><input type="checkbox" data-key="discussions"> Discussions</label>
       <label><input type="checkbox" data-key="grades"> Grades (CSV export)</label>
       <label><input type="checkbox" data-key="quizzes"> Quizzes</label>
-      <label><input type="checkbox" data-key="linkedFiles"> Linked / extracted files</label>
     </div>
-    <div class="hint">When you are a teacher/TA in a course, these capture the full picture: <strong>Discussions</strong> include every student reply, <strong>Assignments</strong> also download all student submissions (files, text, comments &amp; rubric scores) into a <code>Submissions/</code> folder, <strong>Grades</strong> produces a full <code>Gradebook.csv</code> + <code>Students.csv</code> (with sections) for the whole class, and <strong>Quizzes</strong> include the question bank with the answer key plus per-student scores. This is detected automatically and includes student personal data — handle the export accordingly. Students get their own view: quiz scores (and their own answers when the instructor allows it), assignment rubrics, and personal grades.</div>
+    <div class="hint">The <strong>Student data &amp; grades</strong> group is detected automatically by your role. As a teacher/TA it captures everyone's data: <strong>Student submissions</strong> downloads every student's files, text, comments &amp; rubric scores (all attempts) into a <code>Submissions/</code> folder — untick it to back up a large course without the submissions — <strong>Discussions</strong> include every student reply, <strong>Grades</strong> produces a full <code>Gradebook.csv</code> + <code>Students.csv</code> (with sections) for the whole class, and <strong>Quizzes</strong> include the question bank with the answer key plus per-student scores. Handle these exports accordingly. As a student the same group gives you only your own view: your submissions, your quiz scores (and answers when the instructor allows it), and your personal grades.</div>
   </div>
 
   <div class="card">

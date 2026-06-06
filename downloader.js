@@ -11,7 +11,7 @@
 
 const SETTING_DEFAULTS = {
   contentTypes: {
-    files: true, pages: true, assignments: true, discussions: true,
+    files: true, pages: true, assignments: true, submissions: true, discussions: true,
     announcements: true, modules: true, syllabus: true, grades: true,
     quizzes: true, linkedFiles: true,
   },
@@ -303,6 +303,10 @@ async function downloadAsZip(files, courseName, settings, log) {
 async function downloadCourse(courseId, courseName, domain, onProgress) {
   const settings = await loadSettings();
   const types = settings.contentTypes;
+  // Back-compat: submissions had no separate toggle before v2.9.1 and rode on
+  // the "assignments" type. Settings saved by older versions have no
+  // `submissions` key, so inherit the assignments choice to preserve behavior.
+  if (types.submissions === undefined) types.submissions = types.assignments;
   const isMarkdown = settings.exportFormat === "markdown";
   const docExt = isMarkdown ? "md" : "html";
   const log = (msg) => {
@@ -457,7 +461,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   // so fetch it whenever assignments OR (teacher + grades) are requested, but
   // only emit the per-assignment documents when assignments itself is on.
   let assignments = [];
-  const needAssignmentList = types.assignments || (isTeacher && types.grades);
+  const needAssignmentList = types.assignments || types.submissions || (isTeacher && types.grades);
   if (needAssignmentList) {
     log("Fetching assignments...");
     assignments = await fetchAllPages(api("assignments?per_page=100"));
@@ -553,7 +557,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   };
 
   // Teacher: archive every student's submissions, plus a per-assignment grades CSV.
-  if (isTeacher && types.assignments && assignments.length > 0) {
+  if (isTeacher && types.submissions && assignments.length > 0) {
     log("Fetching student submissions...");
     const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     for (const a of assignments) {
@@ -597,7 +601,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   // Student: archive your own submissions (every attempt) the same way. The
   // /self endpoint is always readable for your own work, so this needs no
   // roster and runs whenever a student requests assignments.
-  if (!isTeacher && types.assignments && assignments.length > 0) {
+  if (!isTeacher && types.submissions && assignments.length > 0) {
     log("Fetching your submissions...");
     for (const a of assignments) {
       if (!(a.submission_types || []).some((t) => ONLINE_SUBMISSION_TYPES.has(t))) continue;

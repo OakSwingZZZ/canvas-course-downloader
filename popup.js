@@ -10,6 +10,7 @@ const CONTENT_TYPE_LABELS = {
   files: "Files",
   pages: "Pages",
   assignments: "Assignments",
+  submissions: "Submissions",
   discussions: "Discussions",
   announcements: "Announcements",
   modules: "Modules",
@@ -38,7 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Load settings and show content type tags
   chrome.storage.sync.get({
     contentTypes: {
-      files: true, pages: true, assignments: true, discussions: true,
+      files: true, pages: true, assignments: true, submissions: true, discussions: true,
       announcements: true, modules: true, syllabus: true, grades: true,
       quizzes: true, linkedFiles: true,
     },

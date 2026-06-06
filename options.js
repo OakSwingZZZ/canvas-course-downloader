@@ -9,6 +9,7 @@ const DEFAULTS = {
     files: true,
     pages: true,
     assignments: true,
+    submissions: true,
     discussions: true,
     announcements: true,
     modules: true,
@@ -30,22 +31,22 @@ const DEFAULTS = {
 
 const PRESETS = {
   "full-archive": {
-    files: true, pages: true, assignments: true, discussions: true,
+    files: true, pages: true, assignments: true, submissions: true, discussions: true,
     announcements: true, modules: true, syllabus: true, grades: true,
     quizzes: true, linkedFiles: true,
   },
   "files-only": {
-    files: true, pages: false, assignments: false, discussions: false,
+    files: true, pages: false, assignments: false, submissions: false, discussions: false,
     announcements: false, modules: false, syllabus: false, grades: false,
     quizzes: false, linkedFiles: false,
   },
   "text-only": {
-    files: false, pages: true, assignments: true, discussions: true,
+    files: false, pages: true, assignments: true, submissions: true, discussions: true,
     announcements: true, modules: true, syllabus: true, grades: true,
     quizzes: true, linkedFiles: false,
   },
   "linked-only": {
-    files: false, pages: false, assignments: false, discussions: false,
+    files: false, pages: false, assignments: false, submissions: false, discussions: false,
     announcements: false, modules: false, syllabus: false, grades: false,
     quizzes: false, linkedFiles: true,
   },
