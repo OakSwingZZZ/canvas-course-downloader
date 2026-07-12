@@ -376,6 +376,25 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     if (onProgress) onProgress(msg);
   };
 
+  // Submission and discussion attachments are served from Canvas's
+  // user-content CDN, an *optional* host permission (see ENSURE_CDN_PERMISSION
+  // in background.js for why it can't be required). First download prompts
+  // once; every later call resolves silently. Denial is non-fatal — the
+  // affected files just fail and the user can grant access in Settings.
+  if (types.submissions || types.discussions) {
+    try {
+      const perm = await chrome.runtime.sendMessage({ type: "ENSURE_CDN_PERMISSION" });
+      if (!perm?.granted) {
+        showToast(
+          "Some submitted files may be skipped. Allow access to canvas-user-content.com in Settings to include them.",
+          "info"
+        );
+      }
+    } catch (err) {
+      console.warn("[Canvas Downloader] CDN permission check failed:", err);
+    }
+  }
+
   const api = (path) => `${domain}/api/v1/courses/${courseId}/${path}`;
   const filesToDownload = [];
   const seenFileIds = new Set();

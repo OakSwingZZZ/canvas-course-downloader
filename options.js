@@ -138,6 +138,27 @@ function saveSettings() {
   });
 }
 
+// Optional host permission for Canvas's user-content CDN (student-submitted
+// files). Normally granted via the prompt on first download; this block is
+// the manual fallback for users who declined it there.
+const CDN_ORIGIN = { origins: ["*://*.canvas-user-content.com/*"] };
+
+function refreshCdnPermissionUi() {
+  chrome.permissions.contains(CDN_ORIGIN, (granted) => {
+    document.getElementById("grant-cdn-permission").style.display = granted ? "none" : "";
+    document.getElementById("cdn-permission-status").textContent = granted
+      ? "✓ Access granted — submitted files are included in downloads."
+      : "Not granted yet — submitted files will be skipped.";
+  });
+}
+
+function initCdnPermission() {
+  refreshCdnPermissionUi();
+  document.getElementById("grant-cdn-permission").addEventListener("click", () => {
+    chrome.permissions.request(CDN_ORIGIN, () => refreshCdnPermissionUi());
+  });
+}
+
 function initNav() {
   const items = document.querySelectorAll(".nav-item");
   const panels = document.querySelectorAll(".panel");
@@ -156,6 +177,7 @@ function initNav() {
 document.addEventListener("DOMContentLoaded", () => {
   loadSettings();
   initNav();
+  initCdnPermission();
 
   // Preset buttons
   document.getElementById("preset-bar").addEventListener("click", (e) => {

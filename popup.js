@@ -20,6 +20,24 @@ const CONTENT_TYPE_LABELS = {
   linkedFiles: "Linked Files",
 };
 
+// Optional host permission for Canvas's user-content CDN, where student-
+// submitted files live (see ENSURE_CDN_PERMISSION in background.js). The
+// popup requests it directly because its click is a guaranteed user gesture.
+// One prompt ever: contains() short-circuits once granted. A decline is
+// non-fatal — the downloader shows a hint and Settings offers a manual grant.
+const CDN_ORIGIN = { origins: ["*://*.canvas-user-content.com/*"] };
+let cdnPermissionRelevant = true;
+
+async function ensureCdnPermission() {
+  if (!cdnPermissionRelevant) return;
+  try {
+    if (await chrome.permissions.contains(CDN_ORIGIN)) return;
+    await chrome.permissions.request(CDN_ORIGIN);
+  } catch (err) {
+    console.warn("CDN permission request failed:", err);
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const statusDiv = document.getElementById("status");
   const downloadBtn = document.getElementById("downloadBtn");
@@ -44,6 +62,8 @@ document.addEventListener("DOMContentLoaded", () => {
       quizzes: true, linkedFiles: true,
     },
   }, (settings) => {
+    // The CDN permission only matters when user-submitted content is exported.
+    cdnPermissionRelevant = !!(settings.contentTypes.submissions || settings.contentTypes.discussions);
     const tagsEl = document.getElementById("contentTags");
     for (const [key, label] of Object.entries(CONTENT_TYPE_LABELS)) {
       const tag = document.createElement("span");
@@ -81,9 +101,10 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("courseName").innerHTML =
           `<span class="info-value">${courseName}</span>`;
 
-        downloadBtn.addEventListener("click", () => {
+        downloadBtn.addEventListener("click", async () => {
           downloadBtn.disabled = true;
           downloadBtnLabel.textContent = "Starting...";
+          await ensureCdnPermission();
           chrome.tabs.sendMessage(tab.id, { action: "trigger_download" }, () => {
             downloadBtnLabel.textContent = "Queued!";
             setTimeout(() => window.close(), 1500);
@@ -94,7 +115,8 @@ document.addEventListener("DOMContentLoaded", () => {
         downloadBtnLabel.textContent = "Select courses to download";
         downloadBtn.disabled = false;
 
-        downloadBtn.addEventListener("click", () => {
+        downloadBtn.addEventListener("click", async () => {
+          await ensureCdnPermission();
           chrome.tabs.sendMessage(tab.id, { action: "open_course_selector" }, () => {
             window.close();
           });

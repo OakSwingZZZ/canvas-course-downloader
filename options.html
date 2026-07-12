@@ -500,6 +500,13 @@
             <label><input type="checkbox" id="incremental-mode" class="custom-checkbox"> Incremental mode (skip unchanged files)</label>
             <div class="hint">When enabled, the extension remembers which files have been downloaded for each course. On subsequent runs, only new or modified files are downloaded. Useful for archiving progressively over a semester. File tracking is stored locally on this device.</div>
           </div>
+
+          <div class="field" id="cdn-permission-block" style="margin-top:20px;">
+            <label>Submitted files (student uploads)</label>
+            <div class="hint">Canvas serves student-submitted files — assignment uploads and discussion attachments — from its <code>canvas-user-content.com</code> CDN, which needs a one-time permission. You'll normally be asked on your first download; you can also grant it here. Without it, those files are skipped.</div>
+            <div class="hint" id="cdn-permission-status" style="margin-top:8px;"></div>
+            <button type="button" class="preset-btn" id="grant-cdn-permission" style="margin-top:8px;">Allow access</button>
+          </div>
         </section>
 
         <!-- FORMAT -->

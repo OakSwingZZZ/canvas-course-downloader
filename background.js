@@ -286,6 +286,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       broadcastStatus();
       if (!isProcessing && failedJobs.length > 0) processQueue();
       sendResponse({ status: "retrying", count: failedJobs.length });
+    } else if (message.type === "ENSURE_CDN_PERMISSION") {
+      // Student-submitted files are served from Canvas's user-content CDN.
+      // The host permission is optional: shipping it as required would
+      // deactivate the extension for every existing user until they
+      // re-approve it. Content scripts can't use chrome.permissions, so the
+      // request happens here — Chrome forwards the user gesture from the
+      // download click through sendMessage. After the first grant,
+      // contains() short-circuits and no prompt is ever shown again.
+      const cdnOrigin = { origins: ["*://*.canvas-user-content.com/*"] };
+      try {
+        if (await chrome.permissions.contains(cdnOrigin)) {
+          sendResponse({ granted: true });
+        } else {
+          sendResponse({ granted: await chrome.permissions.request(cdnOrigin) });
+        }
+      } catch (err) {
+        // No user gesture available or the prompt failed — the download
+        // proceeds without CDN access; the options page offers a manual grant.
+        sendResponse({ granted: false, error: err?.message });
+      }
     } else if (message.type === "OPEN_OPTIONS") {
       chrome.runtime.openOptionsPage();
       sendResponse({ status: "ok" });
