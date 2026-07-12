@@ -390,7 +390,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   const isTeacher = await fetchCourseRole(domain, courseId);
   log(isTeacher ? "Teacher role detected — archiving student data" : "Student role — archiving own view");
 
-  // Counts for teacher-only data, surfaced in the export manifest.
+  // Counts surfaced in the export manifest.
   let discussionReplyCount = 0;
   let studentSubmissionCount = 0;
   let gradebookStudentCount = 0;
@@ -757,24 +757,28 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
         if (types.linkedFiles) await extractLinkedFiles(d.message, `Discussion: ${d.title}`);
       }
 
-      // Teachers get the full threaded view (all student replies); students only
-      // ever see the opening message, so the /view fetch is gated on the role.
-      if (isTeacher) {
-        try {
-          const res = await fetchWithRetry(api(`discussion_topics/${d.id}/view`), {
-            headers: { Accept: "application/json+canvas-string-ids" },
-          });
-          if (res.ok) {
-            const view = await res.json();
-            const participantName = new Map((view.participants || []).map((p) => [String(p.id), p.display_name || p.name]));
-            const safeTopic = sanitizeFilename(d.title).substring(0, 80);
-            const repliesHtml = await renderEntries(view.view, participantName, d.title, `Discussions/${safeTopic}/`);
-            if (repliesHtml) body += `<hr><h3>Replies</h3>${repliesHtml}`;
-          }
-        } catch (err) {
-          console.error(`[Canvas Downloader] Discussion thread error (${d.title}):`, err);
+      // Full threaded view (replies). Not gated on role: students can read
+      // /view for any discussion they can see, including their own posts.
+      // Fails soft (e.g. 403 on require-initial-post or concluded courses) —
+      // the opening message above is still exported.
+      try {
+        const res = await fetchWithRetry(api(`discussion_topics/${d.id}/view`), {
+          headers: { Accept: "application/json+canvas-string-ids" },
+        });
+        if (res.ok) {
+          const view = await res.json();
+          const participantName = new Map((view.participants || []).map((p) => [String(p.id), p.display_name || p.name]));
+          const safeTopic = sanitizeFilename(d.title).substring(0, 80);
+          const repliesHtml = await renderEntries(view.view, participantName, d.title, `Discussions/${safeTopic}/`);
+          if (repliesHtml) body += `<hr><h3>Replies</h3>${repliesHtml}`;
+        } else {
+          console.warn(`[Canvas Downloader] Discussion thread unavailable (${d.title}) — HTTP ${res.status}`);
         }
+      } catch (err) {
+        console.error(`[Canvas Downloader] Discussion thread error (${d.title}):`, err);
+      }
 
+      if (isTeacher) {
         // Graded discussions are backed by an assignment; capture per-student
         // scores into a _grades.csv beside the topic (dlxmax: grading was missing).
         if (d.assignment_id) {
