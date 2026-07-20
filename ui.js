@@ -984,6 +984,8 @@ function injectButton() {
     const crumbList = document.querySelector("#breadcrumbs ol, #breadcrumbs ul, .ic-app-crumbs");
     if (crumbList) {
       crumbList.appendChild(btn);
+      // Add a flex display to the breadcrumb list so the button sits inline with the breadcrumbs instead of wrapping below them.
+      crumbList.style.display = "flex";
     } else {
       const anchor = findMountPoint(MOUNT_SELECTORS);
       if (!anchor) return;
