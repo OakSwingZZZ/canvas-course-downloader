@@ -837,6 +837,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
 
   // --- Modules ---------------------------------------------------------------
   let modules = [];
+  let modules_obj = {} // initialize an empty object to hold module data
   if (types.modules) {
     log("Fetching modules...");
     modules = await fetchAllPages(api("modules?per_page=100"));
@@ -845,11 +846,19 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     for (const mod of modules) {
       modulesBody += `<h2>${mod.name}</h2><ul>`;
       const items = await fetchAllPages(api(`modules/${mod.id}/items?per_page=100`));
+      
+      modules_obj[mod.id] = mod; // store the module object in the modules_obj using its id as the key
+      modules_obj[mod.id].items = []; // store the items array in the module object
 
+      const gradeAssignments = await fetchAllPages(
+        api("assignments?per_page=100&include[]=submission&include[]=score_statistics")
+      );
       for (const item of items) {
+        const item_with_grade = gradeAssignments.find((a) => a.id === item.content_id);
+        modules_obj[mod.id].items.push({ ...item, ...(item_with_grade ?? undefined)}); // store the item with grade in the module object
+
         const label = item.html_url ? `<a href="${item.html_url}">${item.title}</a>` : item.title;
         modulesBody += `<li>${label} (${item.type})</li>`;
-
         // Track module-item → underlying-resource linkage for cross-ref rewriting.
         if (item.id) {
           if (item.type === "Page" && item.page_url) {
@@ -907,6 +916,11 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     }
 
     filesToDownload.push(buildDocEntry("Modules", modulesBody, "Modules", "", "module-index"));
+    filesToDownload.push({
+      url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(modules_obj, null, 2))}`,
+      filename: "Modules.json",
+      path: "",
+    });
   }
 
   // --- Pages: fetch bodies for every slug (from Pages list + Modules) -------
@@ -1269,6 +1283,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     sourceUrl: `${domain}/courses/${courseId}`,
     exportDate: new Date().toISOString(),
     extensionVersion: chrome.runtime.getManifest().version,
+    manifestVersion: 2, //used for detecting if downloaded course has data required to use viewer
     counts: {
       files: files.length,
       pages: exportedPagesCount,
