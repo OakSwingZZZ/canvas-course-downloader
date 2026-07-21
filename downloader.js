@@ -480,7 +480,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       if (folder.startsWith("/")) folder = folder.slice(1);
 
       seenFileIds.add(String(file.id));
-      filesToDownload.push({ url: file.url, filename: file.display_name, path: `Files/${folder}`, size: file.size || 0, contentType: file["content-type"] || "", canvasId: String(file.id) });
+      filesToDownload.push({ url: file.url, filename: file.display_name, path: `Files/${folder}`, size: file.size || 0, contentType: file["content-type"] || "", updatedAt: file.updated_at || file.modified_at || "", canvasId: String(file.id) });
     });
   }
 
@@ -514,6 +514,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
             path: "Extracted_Files/",
             size: data.size || 0,
             contentType: data["content-type"] || "",
+            updatedAt: data.updated_at || data.modified_at || "",
             canvasId: fileId,
           });
         }
@@ -600,6 +601,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
             path: folder,
             size: att.size || 0,
             contentType: att["content-type"] || "",
+            updatedAt: att.updated_at || att.modified_at || "",
             canvasId: fileId,
           });
         }
@@ -754,6 +756,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
               path: attachmentPath,
               size: att.size || 0,
               contentType: att["content-type"] || "",
+              updatedAt: att.updated_at || att.modified_at || "",
               canvasId: fileId,
             });
           }
@@ -895,6 +898,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
                 path: `Modules/${safeModName}/`,
                 size: data.size || 0,
                 contentType: data["content-type"] || "",
+                updatedAt: data.updated_at || data.modified_at || "",
                 canvasId: fileId,
               });
             }
@@ -1197,16 +1201,24 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   }
 
   // --- Incremental mode: filter out unchanged files --------------------------
+  // Skips files whose path+name a previous download recorded, unless their
+  // Canvas metadata (updated_at, size) shows they changed since — those are
+  // re-downloaded. Generated documents (pages, assignments, CSVs) are always
+  // re-exported. The inventory itself is written after the file filters below,
+  // on every run, so downloads made before the toggle was enabled still count.
   let skippedCount = 0;
+  const incrementalKey = `incremental_${courseId}`;
+  const incrementalRecord = {};
   if (settings.incrementalMode) {
-    const storageKey = `incremental_${courseId}`;
-    const stored = await new Promise((r) => chrome.storage.local.get(storageKey, (d) => r(d[storageKey] || {})));
+    const stored = await new Promise((r) => chrome.storage.local.get(incrementalKey, (d) => r(d[incrementalKey] || {})));
 
     const filtered = [];
     for (const file of filesToDownload) {
       if (!isSynthetic(file)) {
         const fileKey = file.path + file.filename;
-        if (stored[fileKey]) {
+        const entry = stored[fileKey];
+        if (entry && !incrementalFileChanged(entry, file)) {
+          incrementalRecord[fileKey] = entry;
           skippedCount++;
           continue;
         }
@@ -1214,16 +1226,10 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       filtered.push(file);
     }
 
-    const newRecord = {};
-    for (const file of filesToDownload) {
-      if (!isSynthetic(file)) {
-        newRecord[file.path + file.filename] = Date.now();
-      }
-    }
-    chrome.storage.local.set({ [storageKey]: newRecord });
-
     if (skippedCount > 0) {
       log(`Incremental mode: skipping ${skippedCount} previously downloaded files.`);
+    } else if (Object.keys(stored).length === 0) {
+      log("Incremental mode: no earlier download on record — fetching everything once.");
     }
     filesToDownload.length = 0;
     filesToDownload.push(...filtered);
@@ -1261,6 +1267,22 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       log(`File filters: excluded ${filteredOutCount} file(s).`);
     }
   }
+
+  // --- Record download inventory for incremental mode ------------------------
+  // Recorded on every run, even with incremental mode off, so enabling the
+  // toggle later immediately skips what earlier runs already downloaded.
+  // Files skipped as unchanged above keep their original entry; files excluded
+  // by the video/size filters were not downloaded, so they are not recorded.
+  for (const file of filesToDownload) {
+    if (!isSynthetic(file)) {
+      incrementalRecord[file.path + file.filename] = {
+        t: Date.now(),
+        m: file.updatedAt || "",
+        s: file.size || 0,
+      };
+    }
+  }
+  chrome.storage.local.set({ [incrementalKey]: incrementalRecord });
 
   // --- Export manifest -------------------------------------------------------
   const manifest = {
