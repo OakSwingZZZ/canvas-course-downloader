@@ -1010,7 +1010,16 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   } else if (types.pages) {
     console.log("[Canvas Downloader] No pages found via Pages API list or Modules — nothing to fetch.");
   }
-
+  // --- Home Page (front page) -------------------------------------------------------
+  let frontPageData = await fetchWithRetry(api('front_page'));
+  let frontPageJson = await frontPageData.json();
+  if (frontPageData && frontPageJson && frontPageJson.page_id) {
+    filesToDownload.push({
+      url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(frontPageJson, null, 2))}`,
+      filename: "FrontPage.json",
+      path: "",
+    });
+  }
   // --- Syllabus --------------------------------------------------------------
   if (types.syllabus) {
     log("Fetching syllabus...");
