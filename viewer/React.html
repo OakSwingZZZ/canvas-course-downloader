@@ -168,6 +168,40 @@
     li.course-item > a:hover {
       text-decoration: underline;
     }
+    #home-page-content {
+      max-width: min(100%, 1750px);
+      padding-right: 20px;
+    }
+
+    /* Container rules to keep everything bounded */
+    .home-page-div {
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow-x: auto; /* Prevent layout breakage on small screens */
+    }
+
+    /* Force all dynamic images inside course content to stay within bounds */
+    #home-page-content img {
+      max-width: 100% !important;
+      height: auto !important;
+      display: block;
+    }
+
+    /* Force rich text tables to respect container boundaries */
+    #home-page-content table {
+      max-width: 100% !important;
+      width: 100% !important;
+      table-layout: fixed !important; /* Prevents cell expansion past screen limits */
+      box-sizing: border-box;
+    }
+
+    /* Fix table cells so large button graphics don't overflow */
+    #home-page-content td {
+      max-width: 0;
+      overflow: hidden;
+      word-wrap: break-word;
+    }
   </style>
   <body>
     <!-- The container where React renders -->
@@ -355,7 +389,7 @@
 
       const elements = React.useMemo(() => {
         if (!courseData) return [];
-
+        console.log("Course data:", courseData);
         const list = [];
         if (courseData.FrontPage) {
           list.push({ key: "frontpage", title: "Home" });
@@ -416,7 +450,32 @@
               marginLeft: "20px",
             }}
           >
-            {showCourseList && <CourseList elements={elements} callback={(key) => {console.log(`Selected: ${key}`); setActiveKey(key)}} activeKey={activeKey} />}
+            {showCourseList && (
+              <CourseList
+                elements={elements}
+                callback={(key) => {
+                  console.log(`Selected: ${key}`);
+                  setActiveKey(key);
+                }}
+                activeKey={activeKey}
+              />
+            )}
+            {renderActiveContent(activeKey)}
+          </div>
+        </main>
+      );
+    }
+    /**
+     * Switch statement to render the appropriate content based on the activeKey. It currently handles the "frontPage" case and a default case for other keys.
+     */
+    function renderActiveContent(activeKey) {
+      switch (activeKey) {
+        case "frontpage":
+          return <HomePage />;
+          break;
+
+        default:
+          return (
             <div className="canvas_content">
               Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do
               eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut
@@ -425,10 +484,11 @@
               reprehenderit in voluptate velit esse cillum dolore eu fugiat
               nulla pariatur. Excepteur sint occaecat cupidatat non proident,
               sunt in culpa qui officia deserunt mollit anim id est laborum.
+              <h1>Active key: {activeKey}</h1>
             </div>
-          </div>
-        </main>
-      );
+          );
+          break;
+      }
     }
     /**
      * CourseList component that displays a list of course elements. It checks if the elements prop is valid and renders a list of links to the course items.
@@ -446,7 +506,10 @@
           <nav>
             <ul id="courseList" style={{ display: "block" }}>
               {elements.map((element, index) => (
-                <li className={`course-item ${activeKey === element.key ? "active-course-item" : ""}`} key={index}>
+                <li
+                  className={`course-item ${activeKey === element.key ? "active-course-item" : ""}`}
+                  key={index}
+                >
                   <a
                     onClick={() => handleCourseItemClick(element.key, callback)}
                     href="#"
@@ -473,7 +536,28 @@
     }
 
     /**
-     * Directory picker and data analyzer
+     * Home Page component that displays the home page content. It checks if the courseData is available and renders the appropriate content.
      */
+    function HomePage() {
+      const { courseData } = useCourseContext();
+      if (!courseData) {
+        return <div>Loading...</div>;
+      }
+      if (!courseData.FrontPage) {
+        return <div>No course home page available.</div>;
+      } else if (courseData.FrontPage) {
+        return courseData.FrontPage.body ? (
+          <div className="home-page-div">
+            <h1>{courseData.manifest.course}</h1>
+            <div
+              id="home-page-content"
+              dangerouslySetInnerHTML={{ __html: courseData.FrontPage.body }}
+            />
+          </div>
+        ) : (
+          <div>No content available for the course home page.</div>
+        );
+      }
+    }
   </script>
 </html>
