@@ -179,11 +179,12 @@
     }
 
     /* Container rules to keep everything bounded */
-    .home-page-div {
+    .page-div {
       width: 100%;
       max-width: 100%;
       box-sizing: border-box;
       overflow-x: auto; /* Prevent layout breakage on small screens */
+      margin-right: 1em;
     }
 
     /* Force all dynamic images inside course content to stay within bounds */
@@ -234,10 +235,56 @@
       vertical-align: middle;
     }
 
-    /* 3. Optional: Basic styling for breadcrumb items */
     .breadcrumb-item {
       display: flex;
       align-items: center;
+    }
+    /* Collapsible table styles */
+    .collapse-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .collapse-table-header {
+      background-color: #f2f4f4;
+      cursor: pointer;
+      padding: 12px 6px 12px 6px;
+      border: 1px solid #e8eaec;
+      min-height: 38px;
+      align-items: center;
+      display: flex;
+      justify-content: left;
+      gap: 10px;
+    }
+    .collapse-table-list {
+      list-style-type: none;
+      padding-left: 0;
+      margin: 0;
+    }
+    .collapse-table-item {
+      padding: 12px 6px 12px 18px;
+      border: 1px solid #e8eaec;
+      border-top: none;
+      max-height: 42px;
+      align-items: center;
+      display: flex;
+    }
+    .assignment-info-item:not(:last-child) {
+      padding-right: 0.5em;
+      font-size: 12px;
+      border-right: 1px solid #ccc;
+      color: #47535c;
+    }
+    .collapse-table-item:hover {
+      background-color: #f0f7fe;
+    }
+    .assignment-info-item:not(:first-child) {
+      margin-left: 0.5em;
+      font-size: 12px;
+      color: #47535c;
+    }
+    .assignment-info-title:hover {
+      text-decoration: underline;
+      cursor: pointer;
     }
   </style>
   <body>
@@ -469,7 +516,7 @@
         const list = [];
         if (courseData.FrontPage) {
           list.push({ key: "frontpage", title: "Home" });
-          setActiveKey("frontpage");
+          setActiveKey("modules"); // FIX: Set default active key to "frontpage" if FrontPage exists
         }
         if (courseData.Assignments) {
           list.push({ key: "assignments", title: "Assignments" });
@@ -553,7 +600,10 @@
         case "frontpage":
           return <HomePage />;
           break;
-
+        case "assignments":
+          return <AssignmentsPage />;
+          break;
+          0;
         default:
           return (
             <div className="canvas_content">
@@ -662,8 +712,10 @@
         return <div>No course home page available.</div>;
       } else if (courseData.FrontPage) {
         return courseData.FrontPage.body ? (
-          <div className="home-page-div">
-            <h1 style={{ color: "#666666", fontSize: 28.8}}>{courseData.manifest.course}</h1>
+          <div className="page-div">
+            <h1 style={{ color: "#666666", fontSize: 28.8 }}>
+              {courseData.manifest.course}
+            </h1>
             <div
               id="home-page-content"
               dangerouslySetInnerHTML={{ __html: courseData.FrontPage.body }}
@@ -673,6 +725,169 @@
           <div>No content available for the course home page.</div>
         );
       }
+    }
+
+    function AssignmentsPage() {
+      const { courseData } = useCourseContext();
+      if (!courseData) {
+        return <div>Loading...</div>;
+      }
+      if (!courseData.Assignments) {
+        return <div>No assignments available.</div>;
+      }
+      // Convert dictionary object or array into a flat array of assignments
+      const assignmentList = Array.isArray(courseData.Assignments)
+        ? courseData.Assignments
+        : Object.values(courseData.Assignments);
+
+      if (courseData.Assignments) {
+        return (
+          <div className="page-div" style={{ marginBottom: "4em"}}>
+            <h1 style={{ color: "#666666", fontSize: 28.8 }}>Assignments</h1>
+            <CollapseTable title="Assignments">
+              {assignmentList.map((assignment, index) => (
+                <AssignmentDetails
+                  key={assignment.id}
+                  closed={assignment?.availability_status?.status || "Unknown"} // Uses 'availability_status.status' from Canvas JSON
+                  title={assignment?.name || "No Title"} // Uses 'name' from Canvas JSON
+                  dueDate={
+                    assignment?.due_at
+                      ? fixDateFormat(assignment?.due_at)
+                      : "No Due Date"
+                  }
+                  grade={assignment?.submission?.score || "-"}
+                  maxGrade={assignment?.points_possible} // Uses 'points_possible' from Canvas JSON
+                  assignment={assignment}
+                />
+              ))}
+            </CollapseTable>
+          </div>
+        );
+      }
+    }
+    // Example input: 2022-08-29T22:30:00Z
+    // Example output: Jun 7 at 11:59pm
+    function fixDateFormat(dateString) {
+      //Reformats Canvas date strings to a more readable format
+      if (!dateString) return "";
+      const date = new Date(dateString);
+      const datePart = date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      });
+      const timePart = date
+        .toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        })
+        .toLowerCase()
+        .replace(/\s+/g, ""); // Converts "10:30 PM" -> "10:30pm"
+
+      return `${datePart} at ${timePart}`;
+    }
+
+    // Multi-use components below
+    // ------------------------------------------------------------------------------------------------------------------------------------
+    /**
+     * Collapsible Table Component
+     * @param {Object} props
+     * @param {string} props.title - The title of the collapsible table.
+     * @param {React.ReactNode} props.children - The content to be displayed inside.
+     */
+    function CollapseTable({ title, children }) {
+      const [isOpen, setIsOpen] = useState(true);
+
+      const toggleOpen = () => {
+        setIsOpen((prev) => !prev);
+      };
+
+      // Safe normalization: Converts single elements, strings, or arrays into a clean array
+      const childList = React.Children.toArray(children);
+
+      return (
+        <div className="collapse-table">
+          <div className="collapse-table-header" onClick={toggleOpen}>
+            <span style={{ fontSize: "10px", marginLeft: "12px" }}>
+              {!isOpen ? "▲" : "▼"}
+            </span>
+            <span>{title}</span>
+          </div>
+
+          {isOpen && (
+            <div className="collapse-table-content">
+              {childList.length > 0 ? (
+                <ul className="collapse-table-list">
+                  {childList.map((child, index) => (
+                    <li
+                      key={child.key || index}
+                      className="collapse-table-item"
+                    >
+                      {child}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="collapse-table-empty">No items to display.</div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function AssignmentIcon() {
+      return (
+        <div class="ig-type-icon">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 1920 1920"
+            xmlns="http://www.w3.org/2000/svg"
+            style={{ fill: "#47535c" }}
+          >
+            <path
+              d="M1468.214 0v564.698h-112.94V112.94H112.94v1694.092h1242.334v-225.879h112.94v338.819H0V0h1468.214Zm129.428 581.311c22.137-22.136 57.825-22.136 79.962 0l225.879 225.879c22.023 22.023 22.023 57.712 0 79.848l-677.638 677.637c-10.616 10.504-24.96 16.49-39.98 16.49h-225.88c-31.17 0-56.469-25.299-56.469-56.47v-225.88c0-15.02 5.986-29.364 16.49-39.867Zm-155.291 314.988-425.895 425.895v146.031h146.03l425.895-425.895-146.03-146.03Zm-764.714 346.047v112.94H338.82v-112.94h338.818Zm225.88-225.88v112.94H338.818v-112.94h564.697Zm734.106-315.44-115.424 115.425 146.03 146.03 115.425-115.423-146.031-146.031ZM1129.395 338.83v451.758H338.82V338.83h790.576Zm-112.94 112.94H451.759v225.878h564.698V451.77Z"
+              fill-rule="evenodd"
+            />
+          </svg>
+        </div>
+      );
+    }
+    function AssignmentDetails({ title, closed, dueDate, grade, maxGrade, assignment }) {
+      return (
+        <div
+          className="assignment-details"
+          style={{ display: "flex", alignItems: "center" }}
+        >
+          <AssignmentIcon />
+          <div
+            className="assignment-info"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              marginLeft: "1em",
+            }}
+          >
+            <h3 className="assignment-info-title" style={{ fontSize: "16px", margin: "0", color: "#273450" }}>
+              {title}
+            </h3>
+            <div>
+              <span className="assignment-info-item">
+                <strong>{closed ? "Closed" : "Open"}</strong>
+              </span>
+              <span className="assignment-info-item">
+                <strong>Due</strong> {dueDate}
+              </span>
+              {!assignment?.submission_types?.includes("none") && assignment?.grading_type == "points" && grade && maxGrade && (
+                <span className="assignment-info-item">
+                  <strong>{grade}</strong>/{maxGrade} pts
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      );
     }
   </script>
 </html>
