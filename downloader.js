@@ -408,6 +408,13 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   // Students (or any failure) fall back to the exact behavior as before.
   const isTeacher = await fetchCourseRole(domain, courseId);
   log(isTeacher ? "Teacher role detected — archiving student data" : "Student role — archiving own view");
+  
+  // Fetch the course object itself so we can access the term name, other data.
+  const courseData = await fetchWithRetry(api("?include[]=term"));
+  const courseDataJson = await courseData.json();
+  const courseTerm = courseDataJson?.term;
+  console.log(`[Canvas Downloader] Course Term: ${JSON.stringify(courseTerm)}`);
+
 
   // Counts surfaced in the export manifest.
   let discussionReplyCount = 0;
@@ -1357,6 +1364,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     exportDate: new Date().toISOString(),
     extensionVersion: chrome.runtime.getManifest().version,
     manifestVersion: 2, //used for detecting if downloaded course has data required to use viewer
+    courseTerm: courseTerm,
     counts: {
       files: files.length,
       pages: exportedPagesCount,

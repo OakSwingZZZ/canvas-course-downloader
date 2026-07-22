@@ -27,6 +27,7 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=settings"
     />
+    <script src="https://cdn.jsdelivr.net/npm/idb-keyval@3/dist/idb-keyval-iife.min.js"></script>
   </head>
   <style>
     :root {
@@ -103,13 +104,17 @@
       width: auto;
       height: 70px;
       border-bottom: 1px solid #ededed;
+      display: flex;
+      align-items: center;
     }
     #courseMenuToggle {
       height: 40px;
-      margin-top: 15px;
+      /* margin-top: 15px; */
       background: none;
       background-color: transparent;
       border: none;
+      align-items: center;
+      display: flex;
     }
     .course-item-list {
       min-width: 192px;
@@ -202,6 +207,38 @@
       overflow: hidden;
       word-wrap: break-word;
     }
+    .breadcrumb-item {
+      margin-left: 6px;
+      font-size: 18px;
+    }
+    .breadcrumb-item:hover {
+      text-decoration: underline;
+    }
+    .top-breadcrumbs {
+      list-style: none;
+      display: flex;
+      list-style-type: none;
+      padding: 0;
+      gap: 0px; /* Space between items and separators */
+    }
+    /* 2. Add the chevron separator */
+    .breadcrumb-item:not(:last-child)::after {
+      content: "";
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      border-right: 1.5px solid #ababab;
+      border-top: 1.5px solid #ababab;
+      transform: rotate(45deg); /* Rotates a square to look like a chevron > */
+      margin: 0 6px;
+      vertical-align: middle;
+    }
+
+    /* 3. Optional: Basic styling for breadcrumb items */
+    .breadcrumb-item {
+      display: flex;
+      align-items: center;
+    }
   </style>
   <body>
     <!-- The container where React renders -->
@@ -209,24 +246,52 @@
 
     <!-- Your React Component (Must use type="text/babel") -->
     <script type="text/babel">
-      const { createContext, useContext, useState } = React;
+      const { createContext, useContext, useState, useEffect } = React;
 
       const CourseContext = createContext(); // Create a context for course data
 
-      function CourseContextProvider({ children }) {
-        // Create a provider component
-        const [courseData, setCourseData] = useState(null);
-        const [isProcessing, setIsProcessing] = useState(false);
+      // If using UMD via script tag:
+      const { get, set, del } = idbKeyval;
 
+      function CourseContextProvider({ children }) {
+        const [courseData, setCourseData] = useState(null);
+        const [isProcessing, setIsProcessing] = useState(true); // Start loading saved data
+
+        // On mount, load previously saved JSON data from IndexedDB
+        useEffect(() => {
+          async function loadCachedCourse() {
+            try {
+              const cachedData = await get("cachedCourseData");
+              if (cachedData) {
+                setCourseData(cachedData);
+              }
+            } catch (err) {
+              console.error(
+                "Failed to load cached course data from storage:",
+                err,
+              );
+            } finally {
+              setIsProcessing(false);
+            }
+          }
+
+          loadCachedCourse();
+        }, []);
+
+        // Handle folder picking and save parsed JSON
         const handleFolderSelect = async () => {
           setIsProcessing(true);
           try {
             // Prompt user for folder access (using File System Access API)
             const dirHandle = await window.showDirectoryPicker();
+            let jsonFilesObject = await scrapeJsonFiles(dirHandle);
 
-            let jsonFilesObject = await scrapeJsonFiles(dirHandle); // Scrape JSON files
             if (jsonFilesObject?.manifest?.manifestVersion >= 2) {
-              setCourseData(jsonFilesObject); // Save to state
+              // Save to React State
+              setCourseData(jsonFilesObject);
+
+              // Save parsed JSON object directly into IndexedDB
+              await set("cachedCourseData", jsonFilesObject);
             } else {
               alert(
                 "Invalid manifest version. Please select a valid course folder.",
@@ -239,9 +304,20 @@
           }
         };
 
+        // Clear stored data (e.g., if user wants to open a different course)
+        const clearCourseData = async () => {
+          await del("cachedCourseData");
+          setCourseData(null);
+        };
+
         return (
           <CourseContext.Provider
-            value={{ courseData, isProcessing, handleFolderSelect }}
+            value={{
+              courseData,
+              isProcessing,
+              handleFolderSelect,
+              clearCourseData,
+            }}
           >
             {children}
           </CourseContext.Provider>
@@ -416,7 +492,10 @@
         }
         return list;
       }, [courseData]);
-
+      let breadcrumbList = [
+        { title: "Assignments", callback: () => alert("Assignments clicked") },
+        { title: "Home Work 1", callback: () => alert("HW1 clicked") },
+      ];
       return (
         <main style={{ marginLeft: "0px", width: "100%" }}>
           <div className="top-nav">
@@ -440,6 +519,7 @@
                 <line x1="3" y1="18" x2="21" y2="18"></line>
               </svg>
             </button>
+            <TopBreadcrumbs list={breadcrumbList} />
           </div>
           <div
             className="bottom_section"
@@ -536,6 +616,41 @@
     }
 
     /**
+     * Top Breadcrumbs component that displays navigation breadcrumbs for the course.
+     * @param {Object} props
+     * @param {{title: string, callback?: function}[]} props.list
+     */
+    function TopBreadcrumbs({ list = [] }) {
+      const { courseData } = useCourseContext();
+
+      if (!courseData) {
+        return null;
+      }
+
+      const courseTitle = courseData?.manifest?.course;
+
+      return (
+        <nav aria-label="breadcrumb">
+          <ol className="top-breadcrumbs">
+            {courseTitle && <li className="breadcrumb-item">{courseTitle}</li>}
+
+            {Array.isArray(list) &&
+              list.map((item, index) => (
+                <li
+                  key={item.id || index}
+                  className="breadcrumb-item"
+                  onClick={item.callback}
+                  style={item.callback ? { cursor: "pointer" } : undefined}
+                >
+                  {item.title}
+                </li>
+              ))}
+          </ol>
+        </nav>
+      );
+    }
+
+    /**
      * Home Page component that displays the home page content. It checks if the courseData is available and renders the appropriate content.
      */
     function HomePage() {
@@ -548,7 +663,7 @@
       } else if (courseData.FrontPage) {
         return courseData.FrontPage.body ? (
           <div className="home-page-div">
-            <h1>{courseData.manifest.course}</h1>
+            <h1 style={{ color: "#666666", fontSize: 28.8}}>{courseData.manifest.course}</h1>
             <div
               id="home-page-content"
               dangerouslySetInnerHTML={{ __html: courseData.FrontPage.body }}
