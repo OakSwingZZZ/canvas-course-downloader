@@ -273,6 +273,7 @@
       align-items: center;
       display: flex;
     }
+
     .assignment-info-item:not(:last-child) {
       padding-right: 0.5em;
       font-size: 12px;
@@ -297,7 +298,35 @@
     .canvas-item-icon:not(:has(path)) {
       display: none;
       margin-right: -20px !important;
-      /* background-color: red; */
+    }
+    .grades-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .grades-table-header {
+      border-bottom: 1px solid black;
+      text-align: left;
+    }
+    .grades-table-header > th {
+      padding: 7px 14px 7px 14px;
+    }
+    .grade-row {
+      border-bottom: 1px solid #ccc;
+    }
+    .grade-row:hover {
+      background-color: #f0f7fe;
+    }
+    /* any td inside of .grade-row regardless of depth */
+    .grade-row td {
+      padding: 14px;
+      color: rgb(39, 53, 64);
+    }
+    .assignment-link {
+      color: rgb(14, 104, 179);
+      text-decoration: none;
+    }
+    .assignment-link:hover {
+      text-decoration: underline;
     }
   </style>
   <body>
@@ -558,7 +587,7 @@
         const list = [];
         if (courseData.FrontPage) {
           list.push({ key: "frontpage", title: "Home" });
-          setActiveKey("modules"); // FIX: Set default active key to "frontpage" if FrontPage exists
+          setActiveKey("grades"); // FIX: Set default active key to "frontpage" if FrontPage exists
         }
         if (courseData.Assignments) {
           list.push({ key: "assignments", title: "Assignments" });
@@ -646,9 +675,11 @@
         case "assignments":
           return <AssignmentsPage />;
           break;
-          0;
         case "modules":
           return <ModulesPage />;
+          break;
+        case "grades":
+          return <GradesPage />;
           break;
         default:
           return (
@@ -909,20 +940,20 @@
 
       // Master button toggle handler
       const handleMasterToggle = () => {
-        const nextState = !isAnyOpen; // If any open -> collapse all (false); if all closed -> expand all (true)
+        const nextState = !isAnyOpen; // If any open -> hide all (false); if all closed -> expand all (true)
         const updated = {};
         moduleList.forEach((m) => {
           updated[m.id] = nextState;
         });
         setOpenStates(updated);
       };
-      const handleItemType = (item) =>{
+      const handleItemType = (item) => {
         if (!item || !item.type) return "assignment"; // Default to assignment if type is missing
         if (item?.quiz_lti && item?.quiz_lti == true) {
           return "quiz";
         }
         return item.type.toLowerCase(); // Return the type in lowercase for consistency
-      }
+      };
 
       return (
         <div
@@ -959,7 +990,7 @@
           {moduleList.map((module, index) => (
             <CollapseTable
               title={module.name}
-              style={{ marginBottom: "38px" }}
+              style={{ marginBottom: "4em" }}
               key={module.id}
               isModuleItem={true}
               isOpen={openStates[module.id] ?? true}
@@ -983,6 +1014,191 @@
               ))}
             </CollapseTable>
           ))}
+        </div>
+      );
+    }
+
+    function GradesPage() {
+      const { courseData } = useCourseContext();
+      const { useState, useMemo } = React;
+      if (!courseData) {
+        return <div>Loading...</div>;
+      }
+      if (!courseData.Assignments) {
+        return <div>No grades available.</div>;
+      }
+
+      // Convert dictionary object or array into a flat array of grades
+      let gradeList = Array.isArray(courseData.Assignments)
+        ? courseData.Assignments
+        : Object.values(courseData.Assignments);
+      // Filter out the assignments that will not be graded grading_type: "not_graded"
+      gradeList = gradeList.filter(
+        (assignment) => assignment.grading_type !== "not_graded",
+      );
+
+      let assignmentGroups = undefined;
+      if (courseData?.AssignmentGroups) {
+        assignmentGroups = courseData.AssignmentGroups;
+      }
+
+      let useAssignmentGroupsForWeighting =
+        courseData?.manifest?.useAssignmentGroupsForWeighting || false;
+
+      //Assignment details open/closed state management. Default to all closed.
+      const [openStates, setOpenStates] = useState(() => {
+        const initial = {};
+        gradeList.forEach((m) => {
+          initial[m.id] = true;
+        });
+        return initial;
+      });
+      // Derived state: If AT LEAST ONE detail is open, button action is "Hide All Details".
+      // If ALL modules are collapsed (none are open), button action is "Show All Details".
+      const isAnyOpen = useMemo(() => {
+        return Object.values(openStates).some((isOpen) => isOpen === true);
+      }, [openStates]);
+
+      // Toggle individual module header click
+      const handleToggleModule = (id) => {
+        setOpenStates((prev) => ({
+          ...prev,
+          [id]: !prev[id],
+        }));
+      };
+
+      // Master button toggle handler
+      const handleMasterToggle = () => {
+        const nextState = !isAnyOpen; // If any open -> hide all details (false); if all closed -> show all details (true)
+        const updated = {};
+        gradeList.forEach((m) => {
+          updated[m.id] = nextState;
+        });
+        setOpenStates(updated);
+      };
+      const handleItemType = (item) => {
+        if (!item || !item.type) return "assignment"; // Default to assignment if type is missing
+        if (item?.quiz_lti && item?.quiz_lti == true) {
+          return "quiz";
+        }
+        return item.type.toLowerCase(); // Return the type in lowercase for consistency
+      };
+      return (
+        <div className="page-div" style={{ marginBottom: "4em" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <h1 style={{ color: "#666666", fontSize: 28.8 }}>Grades</h1>
+            <button
+              onClick={handleMasterToggle}
+              style={{
+                backgroundColor: "#f2f4f4",
+                border: "1px solid #e8eaec",
+                padding: "8px 14px 8px 14px",
+                borderRadius: "3px",
+                cursor: "pointer",
+                fontSize: "16px",
+                color: "#273540",
+              }}
+            >
+              {!isAnyOpen ? "Hide All Details" : "Show All Details"}
+            </button>
+          </div>
+          <table className="grades-table">
+            <thead>
+              <tr className="grades-table-header">
+                <th>Name</th>
+                <th>Due</th>
+                <th>Submitted</th>
+                <th>Status</th>
+                <th>Score</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody className="grades-table-body">
+              {gradeList.map((grade, index) => (
+                <GradeTableRow
+                  assignment={grade}
+                  detailsHidden={openStates[grade.id] ?? true}
+                  hideDetailCallback={() => handleToggleModule(grade.id)}
+                  assignmentGroups={assignmentGroups}
+                  key={index}
+                />
+              ))}
+              {assignmentGroups &&
+                assignmentGroups.length > 0 &&
+                assignmentGroups.map((group, index) => (
+                  <tr className="grade-row" key={index}>
+                    <td colSpan="4">
+                      <strong>{group.name}</strong>
+                    </td>
+                    <td style={{ textAlign: "center" }}>
+                      <strong>
+                        {calculateGradeForGroup(
+                          group,
+                          gradeList,
+                        )?.percentage?.toFixed(2)
+                          ? calculateGradeForGroup(
+                              group,
+                              gradeList,
+                            )?.percentage?.toFixed(2) + "%"
+                          : "N/A"}
+                      </strong>
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <strong style={{ whiteSpace: "nowrap" }}>
+                        {calculateGradeForGroup(
+                          group,
+                          gradeList,
+                        )?.totalPointsEarned?.toFixed(2) || "N/A"}{" "}
+                        /{" "}
+                        {calculateGradeForGroup(
+                          group,
+                          gradeList,
+                        )?.totalPointsPossible?.toFixed(2) || "N/A"}
+                      </strong>
+                    </td>
+                  </tr>
+                ))}
+              <tr className="grade-row grade-row-total">
+                <td colSpan="4" style={{ textAlign: "left" }}>
+                  <strong>Total</strong>
+                </td>
+                <td style={{ textAlign: "center" }}>
+                  <strong>
+                    {calculateTotalWeightedGrade(
+                      gradeList,
+                      useAssignmentGroupsForWeighting
+                        ? assignmentGroups
+                        : undefined,
+                    )
+                      ? calculateTotalWeightedGrade(
+                          gradeList,
+                          useAssignmentGroupsForWeighting
+                            ? assignmentGroups
+                            : undefined,
+                        )?.toFixed(2) + "%"
+                      : "N/A"}
+                  </strong>
+                </td>
+                <td style={{ textAlign: "center" }}>
+                  <strong>
+                    {calculateTotalPoints(
+                      gradeList,
+                    )?.totalPointsEarned?.toFixed(2) || "N/A"}{" "}
+                    /{" "}
+                    {calculateTotalPoints(
+                      gradeList,
+                    )?.totalPointsPossible?.toFixed(2) || "N/A"}
+                  </strong>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       );
     }
@@ -1155,12 +1371,16 @@
       assignment,
       isModuleItem,
       type,
-      indent
+      indent,
     }) {
       return (
         <div
           className="assignment-details"
-          style={{ display: "flex", alignItems: "center", paddingLeft: `${indent*1}em` }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            paddingLeft: `${indent * 1}em`,
+          }}
         >
           <CanvasItemIcon
             icon_type={type?.toLowerCase()}
@@ -1201,6 +1421,360 @@
           </div>
         </div>
       );
+    }
+
+    function GradeTableRow({
+      assignment,
+      detailsHidden,
+      hideDetailCallback,
+      assignmentGroups,
+    }) {
+      let assignmentGroupName = "Unknown Assignment Group";
+      if (assignmentGroups) {
+        // takes a list of assignment groups and finds the name of the group that matches the assignment's group ID
+        assignmentGroupName =
+          assignmentGroups.filter(
+            (group) => group.id === assignment.assignment_group_id,
+          )[0]?.name || "Unknown Assignment Group";
+      }
+      return (
+        <>
+          <tr className="grade-row" key={assignment.id}>
+            <td style={{ maxWidth: "30%" }}>
+              <a href="#implement" className="assignment-link">
+                {assignment.name}
+              </a>
+              <div style={{ fontSize: "14px", color: "rgb(39, 53, 64)" }}>
+                {assignmentGroupName}
+              </div>
+            </td>
+            <td>
+              {assignment.due_at ? fixDateFormat(assignment.due_at) : "-"}
+            </td>
+            <td style={{ textAlign: "left" }}>
+              {assignment.submission?.submitted_at
+                ? fixDateFormat(assignment.submission?.submitted_at)
+                : "-"}
+            </td>
+            <td style={{ textAlign: "center" }}></td>
+            <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+              {`${assignment.submission?.score || "-"} / ${assignment.points_possible || "-"}` ||
+                "-"}
+            </td>
+          </tr>
+          <tr
+            style={{ display: detailsHidden ? "none" : "table-row" }}
+            className="grade-row-details"
+            key={`${assignment.id}-details`}
+          >
+            <td colSpan="6" style={{ padding: "0.5em 1em" }}>
+              <table
+                style={{
+                  maxWidth: "90%",
+                  minWidth: "80%",
+                  borderCollapse: "collapse",
+                }}
+              >
+                <thead style={{ borderBottom: "1px solid #ccc" }}>
+                  <tr
+                    style={{
+                      width: "100%",
+                    }}
+                  >
+                    <th colSpan="3" style={{ textAlign: "left" }}>
+                      Score Details
+                    </th>
+                    <th style={{ textAlign: "right", paddingRight: "1em" }}>
+                      <a
+                        onClick={hideDetailCallback}
+                        className="assignment-link"
+                        style={{ float: "right", fontWeight: "normal" }}
+                      >
+                        Close
+                      </a>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    className="grade-row"
+                    style={{ fontSize: "14px", color: "rgb(39, 53, 64)" }}
+                  >
+                    <td>
+                      Mean: {assignment?.score_statistics?.mean || "-"} <br />{" "}
+                      Median: {assignment?.score_statistics?.median || "-"}{" "}
+                    </td>
+                    <td>
+                      High: {assignment?.score_statistics?.max || "-"} <br />{" "}
+                      Upper Quartile:{" "}
+                      {assignment?.score_statistics?.median || "-"}{" "}
+                    </td>
+                    <td>
+                      Low: {assignment?.score_statistics?.min || "0"} <br />{" "}
+                      Lower Quartile:{" "}
+                      {assignment?.score_statistics?.median || "-"}{" "}
+                    </td>
+                    <td>
+                      <ScoreDistributionGraph assignment={assignment} />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </td>
+          </tr>
+        </>
+      );
+    }
+
+    const ScoreDistributionGraph = ({ assignment }) => {
+      // Constants based on Canvas LMS SVG coordinate system
+      const GRAPH_SCALAR = 150.0;
+      const GRAY_COLOR = "#4A5B68";
+      const BLUE_COLOR = "#224488";
+      const BLUE_FILL_COLOR = "#aabbdd";
+
+      // Safety fallbacks for score scaling
+      const pointsPossible = assignment?.points_possible || 10;
+
+      const scaleStatValue = (stat) => {
+        if (stat === undefined || stat === null || isNaN(stat)) return 0;
+        return (Number(stat) / pointsPossible) * GRAPH_SCALAR;
+      };
+
+      // Extract values directly from your JSON format
+      const userScore = assignment?.submission?.score;
+      const stats = assignment?.score_statistics || {};
+
+      const graph = {
+        title: `Score Distribution Graph - ${assignment?.name || ""}`,
+        max_pos: GRAPH_SCALAR,
+        low_pos: scaleStatValue(stats.min),
+        lq_pos: scaleStatValue(stats.lower_q),
+        uq_pos: scaleStatValue(stats.upper_q),
+        high_pos: scaleStatValue(stats.max),
+        median_pos: scaleStatValue(stats.median),
+        score_pos: scaleStatValue(userScore),
+      };
+
+      // SVG Geometry Dimensions
+      const zeroPosition = "0";
+      const maxSvgHeight = "27";
+      const minSvgHeight = "3";
+      const displaySvgHeight = "24";
+      const startSvgHeight = "6";
+      const strokeWidthDefault = "2";
+      const midSvgHeight = "15";
+
+      const myScoreBoxHeight = "14";
+      const myScoreBoxStartPos = "8";
+
+      const viewBoxValues = "-1 0 160 30";
+
+      const createSvgLine = (
+        className,
+        x1,
+        y1,
+        x2,
+        y2,
+        strokeWidth = strokeWidthDefault,
+      ) => ({
+        className,
+        x1,
+        y1,
+        x2,
+        y2,
+        strokeWidth,
+      });
+
+      const svgLines = [
+        createSvgLine(
+          "zero",
+          zeroPosition,
+          minSvgHeight,
+          zeroPosition,
+          maxSvgHeight,
+        ),
+        createSvgLine(
+          "possible",
+          `${graph.max_pos}`,
+          minSvgHeight,
+          `${graph.max_pos}`,
+          maxSvgHeight,
+        ),
+        createSvgLine(
+          "min",
+          `${graph.low_pos}`,
+          startSvgHeight,
+          `${graph.low_pos}`,
+          displaySvgHeight,
+        ),
+        createSvgLine(
+          "bottomQ",
+          `${graph.low_pos}`,
+          midSvgHeight,
+          `${graph.lq_pos}`,
+          midSvgHeight,
+        ),
+        createSvgLine(
+          "topQ",
+          `${graph.uq_pos}`,
+          midSvgHeight,
+          `${graph.high_pos}`,
+          midSvgHeight,
+        ),
+        createSvgLine(
+          "max",
+          `${graph.high_pos}`,
+          startSvgHeight,
+          `${graph.high_pos}`,
+          displaySvgHeight,
+        ),
+        createSvgLine(
+          "median",
+          `${graph.median_pos}`,
+          minSvgHeight,
+          `${graph.median_pos}`,
+          maxSvgHeight,
+        ),
+      ];
+
+      const mid50Rect = {
+        className: "mid50",
+        x: `${graph.lq_pos}`,
+        y: minSvgHeight,
+        width: `${Math.max(0, graph.uq_pos - graph.lq_pos)}`,
+        height: displaySvgHeight,
+        strokeWidth: strokeWidthDefault,
+        rx: minSvgHeight,
+        fill: "none",
+      };
+
+      const myScoreRect = {
+        x: `${graph.score_pos - 7}`,
+        y: myScoreBoxStartPos,
+        width: myScoreBoxHeight,
+        height: myScoreBoxHeight,
+        strokeWidth: strokeWidthDefault,
+        rx: minSvgHeight,
+        fill: BLUE_FILL_COLOR,
+      };
+
+      return (
+        <svg
+          viewBox={viewBoxValues}
+          xmlns="http://www.w3.org/2000/svg"
+          style={{
+            cursor: "pointer",
+            float: "right",
+            height: "30px",
+            width: "161px",
+            position: "relative",
+          }}
+          aria-hidden="true"
+          data-testid="scoreDistributionGraph"
+        >
+          <title>{graph.title}</title>
+
+          {/* Boxplot Whiskers & Boundary Lines */}
+          {svgLines.map((lineInstructions) => (
+            <line
+              key={lineInstructions.className}
+              {...lineInstructions}
+              stroke={GRAY_COLOR}
+            />
+          ))}
+
+          {/* Middle 50% Box (IQR) */}
+          <rect {...mid50Rect} stroke={GRAY_COLOR} />
+
+          {/* Student Score Square Marker */}
+          {userScore !== undefined && userScore !== null && (
+            <rect className="myScore" {...myScoreRect} stroke={BLUE_COLOR}>
+              <title>{`Your Score: ${userScore} out of ${pointsPossible}`}</title>
+            </rect>
+          )}
+        </svg>
+      );
+    };
+
+    function calculateGradeForGroup(group, assignments) {
+      const groupAssignments = assignments.filter(
+        (assignment) => assignment.assignment_group_id === group.id,
+      );
+
+      const totalPointsPossible = groupAssignments.reduce(
+        (sum, assignment) => sum + (assignment.points_possible || 0),
+        0,
+      );
+
+      const totalPointsEarned = groupAssignments.reduce(
+        (sum, assignment) => sum + (assignment.submission?.score || 0),
+        0,
+      );
+
+      return {
+        totalPointsPossible,
+        totalPointsEarned,
+        percentage:
+          totalPointsPossible > 0
+            ? (totalPointsEarned / totalPointsPossible) * 100
+            : null,
+      };
+    }
+    function calculateTotalWeightedGrade(assignments, assignmentGroups) {
+      if (!assignmentGroups || assignmentGroups.length === 0) {
+        // calculate the total grade without weighting if no assignment groups are provided
+        const totalPointsPossible = assignments.reduce(
+          (sum, assignment) => sum + (assignment.points_possible || 0),
+          0,
+        );
+        const totalPointsEarned = assignments.reduce(
+          (sum, assignment) => sum + (assignment.submission?.score || 0),
+          0,
+        );
+        return totalPointsPossible > 0
+          ? (totalPointsEarned / totalPointsPossible) * 100
+          : null;
+      }
+
+      let totalWeightedScore = 0;
+      let totalWeight = 0;
+
+      assignmentGroups.forEach((group) => {
+        const groupAssignments = assignments.filter(
+          (assignment) => assignment.assignment_group_id === group.id,
+        );
+
+        const groupGrade = calculateGradeForGroup(group, assignments);
+
+        if (groupGrade.percentage !== null) {
+          totalWeightedScore +=
+            groupGrade.percentage * (group.group_weight / 100);
+          totalWeight += group.group_weight;
+        }
+      });
+
+      return totalWeight > 0 ? (totalWeightedScore / totalWeight) * 100 : null;
+    }
+    /*
+     * Function to calculate the total points earned and possible across all assignments regardless of weighting.
+     * @param {Array} assignments - The list of assignments.
+     * @returns {Object} An object containing totalPointsEarned and totalPointsPossible.
+     */
+    function calculateTotalPoints(assignments) {
+      const totalPointsPossible = assignments.reduce(
+        (sum, assignment) => sum + (assignment.points_possible || 0),
+        0,
+      );
+      const totalPointsEarned = assignments.reduce(
+        (sum, assignment) => sum + (assignment.submission?.score || 0),
+        0,
+      );
+
+      return {
+        totalPointsPossible,
+        totalPointsEarned,
+      };
     }
   </script>
 </html>

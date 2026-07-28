@@ -414,6 +414,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   const courseDataJson = await courseData.json();
   const courseTerm = courseDataJson?.term;
   console.log(`[Canvas Downloader] Course Term: ${JSON.stringify(courseTerm)}`);
+  const useAssignmentGroups = courseDataJson?.apply_assignment_group_weights || true;
 
 
   // Counts surfaced in the export manifest.
@@ -1158,12 +1159,10 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   if (types.grades) {
     try {
       const groups = await fetchAllPages(api("assignment_groups?per_page=100"));
-      let assignment_group_obj = {};
       if (groups.some((g) => Number(g.group_weight) > 0)) {
         let body = "<table><thead><tr><th>Group</th><th>Weight</th></tr></thead><tbody>";
         let total = 0;
         for (const g of groups) {
-          assignment_group_obj[g.id] = g;
           total += Number(g.group_weight) || 0;
           body += `<tr><td>${escapeHtml(g.name || "")}</td><td>${fmtPoints(g.group_weight) || 0}%</td></tr>`;
         }
@@ -1171,7 +1170,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
         filesToDownload.push(buildDocEntry(`Grading Weights — ${courseName}`, body, "Grading Weights", "", "grading-weights"));
       }
       filesToDownload.push({ // store the assignment group data to json file for use later
-        url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(assignment_group_obj, null, 2))}`,
+        url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(groups, null, 2))}`,
         filename: "AssignmentGroups.json",
         path: "Assignments/",
       });
@@ -1365,6 +1364,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     extensionVersion: chrome.runtime.getManifest().version,
     manifestVersion: 2, //used for detecting if downloaded course has data required to use viewer
     courseTerm: courseTerm,
+    useAssignmentGroupsForWeighting: useAssignmentGroups,
     counts: {
       files: files.length,
       pages: exportedPagesCount,
