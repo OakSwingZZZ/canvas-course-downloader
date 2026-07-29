@@ -1179,7 +1179,8 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       
       //store the grading periods data to json file for use later
       try {
-        const gradingPeriods = await fetchAllPages(api("grading_periods?per_page=100"));
+        const gradingPeriodsResponse = await fetchWithRetry(api("grading_periods?per_page=100"));
+        const gradingPeriods = await gradingPeriodsResponse.json();
         filesToDownload.push({ 
           url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(gradingPeriods, null, 2))}`,
           filename: "GradingPeriods.json",
