@@ -330,6 +330,31 @@ function parsePaginationLink(linkHeader) {
 }
 
 // ---------------------------------------------------------------------------
+// Incremental Download Records
+// ---------------------------------------------------------------------------
+
+/**
+ * Decides whether a file must be re-downloaded in incremental mode because it
+ * changed on Canvas since its inventory entry was recorded.
+ *
+ * Entries are `{ t, m, s }` (recorded-at timestamp, Canvas updated_at, byte
+ * size). Records written before v2.10.1 stored a bare timestamp; those carry
+ * no metadata to compare against, so the file counts as unchanged (the old
+ * name-only behavior). A comparison only fires when both sides have a value —
+ * Canvas omits size/updated_at on some attachment endpoints.
+ *
+ * @param {object|number} entry - Stored inventory entry for this path+name
+ * @param {{updatedAt?: string, size?: number}} file - Current download entry
+ * @returns {boolean} True when the file changed and must be re-downloaded
+ */
+function incrementalFileChanged(entry, file) {
+  if (typeof entry !== "object" || entry === null) return false;
+  if (entry.m && file.updatedAt && entry.m !== file.updatedAt) return true;
+  if (entry.s && file.size && entry.s !== file.size) return true;
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Path Length Safety
 // ---------------------------------------------------------------------------
 

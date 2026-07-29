@@ -152,6 +152,18 @@
       truncateFilename("a".repeat(300) + ".pdf", "Course", "Files/", 250).endsWith(".pdf")
     );
 
+    // --- incrementalFileChanged ---
+    assertEqual("incrementalFileChanged: legacy timestamp entry counts as unchanged",
+      incrementalFileChanged(1757602800000, { updatedAt: "2026-07-01T10:00:00Z", size: 100 }), false);
+    assertEqual("incrementalFileChanged: matching metadata is unchanged",
+      incrementalFileChanged({ t: 1, m: "2026-07-01T10:00:00Z", s: 100 }, { updatedAt: "2026-07-01T10:00:00Z", size: 100 }), false);
+    assertEqual("incrementalFileChanged: newer updated_at means changed",
+      incrementalFileChanged({ t: 1, m: "2026-07-01T10:00:00Z", s: 100 }, { updatedAt: "2026-07-02T09:00:00Z", size: 100 }), true);
+    assertEqual("incrementalFileChanged: different size means changed",
+      incrementalFileChanged({ t: 1, m: "", s: 100 }, { updatedAt: "", size: 250 }), true);
+    assertEqual("incrementalFileChanged: metadata missing on either side is unchanged",
+      incrementalFileChanged({ t: 1, m: "", s: 0 }, { updatedAt: "2026-07-01T10:00:00Z", size: 100 }), false);
+
     // --- darkenColor ---
     assertEqual("darkenColor: returns hex string", typeof darkenColor("#e82429"), "string");
     assert("darkenColor: starts with #", darkenColor("#e82429").startsWith("#"));
