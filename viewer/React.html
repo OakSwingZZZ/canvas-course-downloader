@@ -1430,13 +1430,52 @@
       assignmentGroups,
     }) {
       let assignmentGroupName = "Unknown Assignment Group";
-      if (assignmentGroups) {
+      if (assignmentGroups && assignmentGroups.length > 0) {
         // takes a list of assignment groups and finds the name of the group that matches the assignment's group ID
         assignmentGroupName =
           assignmentGroups.filter(
             (group) => group.id === assignment.assignment_group_id,
           )[0]?.name || "Unknown Assignment Group";
       }
+      let checkmark = (
+        <svg
+          viewBox="0 0 1920 1920"
+          xmlns="http://www.w3.org/2000/svg"
+          style={{ height: "16px", width: "16px" }}
+        >
+          <path d="M1827.701 303.065 698.835 1431.801 92.299 825.266 0 917.564 698.835 1616.4 1919.869 395.234z" />
+        </svg>
+      );
+      let xmark = (
+        <svg
+          viewBox="0 0 1920 1920"
+          xmlns="http://www.w3.org/2000/svg"
+          style={{ height: "16px", width: "16px" }}
+        >
+          <path d="M954.64 826.418 426.667 298.445 298.445 426.667 826.418 954.64l-527.973 527.973 128.222 128.222 527.973-527.973 527.973 527.973 128.222-128.222-527.973-527.973 527.973-527.973-128.222-128.222z" />
+        </svg>
+      );
+      const renderGrade = (assignment) => {
+        const { grading_type, points_possible, submission } = assignment || {};
+
+        if (grading_type === "points") {
+          return `${submission?.score ?? "-"} / ${points_possible ?? "-"}`;
+        }
+
+        if (grading_type === "pass_fail") {
+          return submission?.grade === "complete" ? checkmark : xmark;
+        }
+
+        if (grading_type === "not_graded") {
+          return "-";
+        }
+        if (grading_type == "letter_grade"){
+          return `${submission?.score} (${submission?.grade})`
+        }
+
+        return "-";
+      };
+
       return (
         <>
           <tr className="grade-row" key={assignment.id}>
@@ -1448,18 +1487,19 @@
                 {assignmentGroupName}
               </div>
             </td>
-            <td>
-              {assignment.due_at ? fixDateFormat(assignment.due_at) : "-"}
-            </td>
+            <td>{assignment.due_at ? fixDateFormat(assignment.due_at) : ""}</td>
             <td style={{ textAlign: "left" }}>
               {assignment.submission?.submitted_at
                 ? fixDateFormat(assignment.submission?.submitted_at)
-                : "-"}
+                : ""}
             </td>
-            <td style={{ textAlign: "center" }}></td>
+            <td style={{ textAlign: "center" }}>
+              {assignment.submission?.late &&
+                !assignment.submission?.missing && <ContextPill type="late" />}
+              {assignment.submission?.missing && <ContextPill type="missing" />}
+            </td>
             <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-              {`${assignment.submission?.score || "-"} / ${assignment.points_possible || "-"}` ||
-                "-"}
+              {renderGrade(assignment)}
             </td>
           </tr>
           <tr
@@ -1696,6 +1736,44 @@
         </svg>
       );
     };
+    /**
+     * Takes a type of ["missing", "late"]
+     * returns a span with the appropriate color and text for the context pill.
+     */
+    function ContextPill({ type }) {
+      const commonStyles = {
+        padding: "2px 6px",
+        borderRadius: "4px",
+        fontSize: "14px",
+        fontWeight: "light",
+        textTransform: "lowercase",
+        borderRadius: "999rem",
+      };
+      let borderColor =
+        type === "missing"
+          ? "rgb(230, 36, 41)"
+          : type === "late"
+            ? "rgb(43, 122, 188)"
+            : "#e2e3e5";
+      let textColor =
+        type === "missing"
+          ? "rgb(230, 36, 41)"
+          : type === "late"
+            ? "rgb(43, 122, 188)"
+            : "#383d41";
+
+      return (
+        <span
+          style={{
+            ...commonStyles,
+            border: `1px solid ${borderColor}`,
+            color: textColor,
+          }}
+        >
+          {type}
+        </span>
+      );
+    }
 
     function calculateGradeForGroup(group, assignments) {
       const groupAssignments = assignments.filter(
