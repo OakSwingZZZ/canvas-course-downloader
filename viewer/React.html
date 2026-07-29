@@ -1137,8 +1137,6 @@
           return 0;
         });
 
-      
-
       let assignmentGroups = undefined;
       if (courseData?.AssignmentGroups) {
         assignmentGroups = courseData.AssignmentGroups;
@@ -1275,6 +1273,27 @@
                 <option value="submitted">Submitted Date</option>
                 <option value="assignment_group">Assignment Group</option>
               </select>
+            </span>
+            <span
+              style={{
+                display: "flex",
+                flexGrow: 1,
+                justifyContent: "right",
+                marginRight: "2em",
+              }}
+            >
+              Total:{" "}
+              {calculateTotalWeightedGrade(
+                gradeList,
+                useAssignmentGroupsForWeighting ? assignmentGroups : undefined,
+              )
+                ? calculateTotalWeightedGrade(
+                    gradeList,
+                    useAssignmentGroupsForWeighting
+                      ? assignmentGroups
+                      : undefined,
+                  )?.toFixed(2) + "%"
+                : "N/A"}
             </span>
           </div>
           <table className="grades-table">
@@ -1708,7 +1727,7 @@
               {renderGrade(assignment)}
             </td>
             <td>
-              {/*Add details button, count twoards final grade, and (comments)?*/} 
+              {/*Add details button, count twoards final grade, and (comments)?*/}
             </td>
           </tr>
           <tr
