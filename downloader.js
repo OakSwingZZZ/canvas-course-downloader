@@ -1156,6 +1156,8 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   // --- Grading weights (both roles) ------------------------------------------
   // Assignment-group weights determine the final grade when the course applies
   // them. Students see these on their own grades page, so this isn't gated.
+  // Furthermore, we store the grading periods to be able to calculate individual semester/quarter 
+  // grades if it is a multi-term course.
   if (types.grades) {
     try {
       const groups = await fetchAllPages(api("assignment_groups?per_page=100"));
@@ -1174,6 +1176,18 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
         filename: "AssignmentGroups.json",
         path: "Assignments/",
       });
+      
+      //store the grading periods data to json file for use later
+      try {
+        const gradingPeriods = await fetchAllPages(api("grading_periods?per_page=100"));
+        filesToDownload.push({ 
+          url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(gradingPeriods, null, 2))}`,
+          filename: "GradingPeriods.json",
+          path: "Assignments/",
+        });
+      } catch (err) {
+        console.error("[Canvas Downloader] Grading periods error:", err);
+      }
     } catch (err) {
       console.error("[Canvas Downloader] Grading weights error:", err);
     }
