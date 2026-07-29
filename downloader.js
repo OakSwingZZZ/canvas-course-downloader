@@ -414,7 +414,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   const courseDataJson = await courseData.json();
   const courseTerm = courseDataJson?.term;
   console.log(`[Canvas Downloader] Course Term: ${JSON.stringify(courseTerm)}`);
-  const useAssignmentGroups = courseDataJson?.apply_assignment_group_weights || true;
+  const useAssignmentGroups = courseDataJson?.apply_assignment_group_weights ?? true;
 
 
   // Counts surfaced in the export manifest.
