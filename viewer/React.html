@@ -328,6 +328,61 @@
     .assignment-link:hover {
       text-decoration: underline;
     }
+    .grade-row-total {
+      border-top: 2px solid black;
+      border-bottom: none;
+    }
+    .group-weighting {
+      margin-top: 24px;
+      padding: 16px 20px;
+      background-color: #f8f9fa;
+      border: 1px solid #e8eaec;
+      border-radius: 4px;
+      color: #2d3b45;
+      font-size: 14px;
+    }
+    .group-weighting .no-weighting-text {
+      margin: 0;
+      color: #596a75;
+      font-style: italic;
+    }
+    .group-weighting .weighting-title {
+      margin: 0 0 12px 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: #273540;
+    }
+    .group-weighting .weighting-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .group-weighting .weighting-table th,
+    .group-weighting .weighting-table td {
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid #e8eaec;
+    }
+    .group-weighting .weighting-table th {
+      font-weight: bold;
+      color: #39454e;
+      background-color: #eef2f5;
+    }
+    .group-weighting .weighting-table td:last-child,
+    .group-weighting .weighting-table th:last-child {
+      text-align: right;
+    }
+    .dropdown-select {
+      padding: 6px 12px 6px 12px;
+      font-size: 16px;
+      border: 1px solid #e8eaec;
+      border-radius: 4px;
+      background-color: #fff;
+      color: #273540;
+      cursor: pointer;
+    }
+    td > strong {
+      text-wrap: nowrap;
+    }
   </style>
   <body>
     <!-- The container where React renders -->
@@ -1032,10 +1087,57 @@
       let gradeList = Array.isArray(courseData.Assignments)
         ? courseData.Assignments
         : Object.values(courseData.Assignments);
-      // Filter out the assignments that will not be graded grading_type: "not_graded"
-      gradeList = gradeList.filter(
-        (assignment) => assignment.grading_type !== "not_graded",
-      );
+
+      // Set the default sorting method for the grades page
+      let [sortBy, setSortBy] = useState("due");
+      // Set the default grading period to all
+      let [selectedGradingPeriod, setSelectedGradingPeriod] = useState("all");
+      // Get the grading periods from the course data
+      let gradingPeriods = undefined;
+      if (courseData?.GradingPeriods?.grading_periods) {
+        gradingPeriods = courseData.GradingPeriods.grading_periods;
+      }
+      // Filter out the assignments that will not be graded grading_type: "not_graded",
+      // Filter the active assignments by their grading_period_id
+      // and sort by the selected sortBy value
+      gradeList = gradeList
+        .filter(
+          (assignment) =>
+            assignment.grading_type !== "not_graded" &&
+            (selectedGradingPeriod === "all" ||
+              (assignment?.submission?.grading_period_id != null &&
+                String(assignment.submission.grading_period_id) ===
+                  String(selectedGradingPeriod))),
+        )
+        .sort((a, b) => {
+          if (sortBy === "due") {
+            const aDate = a.due_at ? new Date(a.due_at) : new Date(0);
+            const bDate = b.due_at ? new Date(b.due_at) : new Date(0);
+            return aDate - bDate;
+          } else if (sortBy === "name") {
+            return (a.name || "").localeCompare(b.name || "");
+          } else if (sortBy === "submitted") {
+            const aSub = a.submission?.submitted_at
+              ? new Date(a.submission.submitted_at)
+              : new Date(0);
+            const bSub = b.submission?.submitted_at
+              ? new Date(b.submission.submitted_at)
+              : new Date(0);
+            return aSub - bSub;
+          } else if (sortBy === "status") {
+            return (a.submission?.workflow_state || "").localeCompare(
+              b.submission?.workflow_state || "",
+            );
+          } else if (sortBy === "assignment_group") {
+            return (
+              (Number(a.assignment_group_id) || 0) -
+              (Number(b.assignment_group_id) || 0)
+            );
+          }
+          return 0;
+        });
+
+      
 
       let assignmentGroups = undefined;
       if (courseData?.AssignmentGroups) {
@@ -1108,6 +1210,73 @@
               {!isAnyOpen ? "Hide All Details" : "Show All Details"}
             </button>
           </div>
+          <div
+            className="grades-sorting"
+            style={{
+              marginBottom: ".5em",
+              marginTop: ".5em",
+              display: "flex",
+              flexDirection: "row",
+              justifyContent: "left",
+            }}
+          >
+            {" "}
+            {gradingPeriods && (
+              <span
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "left",
+                  gap: "0.5em",
+                  fontSize: "1em",
+                  marginRight: "2em",
+                }}
+              >
+                <label htmlFor="grading_period">
+                  <strong>Grading Period</strong>
+                </label>
+
+                <select
+                  name="grading_period"
+                  id="grading_period"
+                  className="dropdown-select"
+                  onChange={(e) => setSelectedGradingPeriod(e.target.value)}
+                  value={selectedGradingPeriod}
+                >
+                  <option value="all">All Grading Periods</option>
+                  {gradingPeriods.map((period) => (
+                    <option key={period.id} value={period.id}>
+                      {period.title || period.display_name}
+                    </option>
+                  ))}
+                </select>
+              </span>
+            )}
+            <span
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "left",
+                gap: "0.5em",
+                fontSize: "1em",
+              }}
+            >
+              <label htmlFor="grades-sorting-dropdown">
+                <strong>Arrange By</strong>
+              </label>
+              <select
+                id="grades-sorting-dropdown"
+                className="dropdown-select"
+                onChange={(e) => setSortBy(e.target.value)}
+                value={sortBy}
+              >
+                <option value="due">Due Date</option>
+                <option value="name">Name</option>
+                <option value="submitted">Submitted Date</option>
+                <option value="assignment_group">Assignment Group</option>
+              </select>
+            </span>
+          </div>
           <table className="grades-table">
             <thead>
               <tr className="grades-table-header">
@@ -1165,7 +1334,10 @@
                   </tr>
                 ))}
               <tr className="grade-row grade-row-total">
-                <td colSpan="4" style={{ textAlign: "left" }}>
+                <td
+                  colSpan="4"
+                  style={{ textAlign: "left", textWrap: "nowrap" }}
+                >
                   <strong>Total</strong>
                 </td>
                 <td style={{ textAlign: "center" }}>
@@ -1199,6 +1371,40 @@
               </tr>
             </tbody>
           </table>
+          <div className="group-weighting">
+            {!useAssignmentGroupsForWeighting ||
+            !assignmentGroups ||
+            assignmentGroups.length === 0 ? (
+              <p className="no-weighting-text">
+                Course assignments are not weighted.
+              </p>
+            ) : (
+              <div className="weighting-container">
+                <h3 className="weighting-title">Course Weighting</h3>
+                <table className="weighting-table">
+                  <thead>
+                    <tr>
+                      <th>Group</th>
+                      <th>Weight</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {assignmentGroups.map((group, index) => (
+                      <tr key={group.id || index}>
+                        <td>{group.name}</td>
+                        <td>
+                          {group.group_weight !== undefined &&
+                          group.group_weight !== null
+                            ? `${group.group_weight}%`
+                            : "N/A"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       );
     }
@@ -1469,8 +1675,8 @@
         if (grading_type === "not_graded") {
           return "-";
         }
-        if (grading_type == "letter_grade"){
-          return `${submission?.score} (${submission?.grade})`
+        if (grading_type == "letter_grade") {
+          return `${submission?.score} (${submission?.grade})`;
         }
 
         return "-";
@@ -1500,6 +1706,9 @@
             </td>
             <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
               {renderGrade(assignment)}
+            </td>
+            <td>
+              {/*Add details button, count twoards final grade, and (comments)?*/} 
             </td>
           </tr>
           <tr
@@ -1777,7 +1986,10 @@
 
     function calculateGradeForGroup(group, assignments) {
       const groupAssignments = assignments.filter(
-        (assignment) => assignment.assignment_group_id === group.id,
+        (assignment) =>
+          assignment.assignment_group_id === group.id &&
+          assignment.submission?.grade != null &&
+          !assignment.omit_from_final_grade,
       );
 
       const totalPointsPossible = groupAssignments.reduce(
@@ -1802,11 +2014,16 @@
     function calculateTotalWeightedGrade(assignments, assignmentGroups) {
       if (!assignmentGroups || assignmentGroups.length === 0) {
         // calculate the total grade without weighting if no assignment groups are provided
-        const totalPointsPossible = assignments.reduce(
+        const gradedAssignments = assignments.filter(
+          (assignment) =>
+            assignment.submission?.grade != null &&
+            !assignment.omit_from_final_grade,
+        );
+        const totalPointsPossible = gradedAssignments.reduce(
           (sum, assignment) => sum + (assignment.points_possible || 0),
           0,
         );
-        const totalPointsEarned = assignments.reduce(
+        const totalPointsEarned = gradedAssignments.reduce(
           (sum, assignment) => sum + (assignment.submission?.score || 0),
           0,
         );
@@ -1819,10 +2036,6 @@
       let totalWeight = 0;
 
       assignmentGroups.forEach((group) => {
-        const groupAssignments = assignments.filter(
-          (assignment) => assignment.assignment_group_id === group.id,
-        );
-
         const groupGrade = calculateGradeForGroup(group, assignments);
 
         if (groupGrade.percentage !== null) {
@@ -1840,11 +2053,16 @@
      * @returns {Object} An object containing totalPointsEarned and totalPointsPossible.
      */
     function calculateTotalPoints(assignments) {
-      const totalPointsPossible = assignments.reduce(
+      const gradedAssignments = assignments.filter(
+        (assignment) =>
+          assignment.submission?.grade != null &&
+          !assignment.omit_from_final_grade,
+      );
+      const totalPointsPossible = gradedAssignments.reduce(
         (sum, assignment) => sum + (assignment.points_possible || 0),
         0,
       );
-      const totalPointsEarned = assignments.reduce(
+      const totalPointsEarned = gradedAssignments.reduce(
         (sum, assignment) => sum + (assignment.submission?.score || 0),
         0,
       );
