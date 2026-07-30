@@ -384,12 +384,92 @@
     td > strong {
       text-wrap: nowrap;
     }
+    .assignment-student-header {
+      font-size: large;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: rgb(27, 39, 51);
+      flex-direction: row;
+      padding: 1em;
+    }
+    .assignment-student-header-title {
+      font-size: 1.5em;
+      font-weight: 300;
+    }
+    .assignment-details {
+      padding: 1.5em;
+    }
+    .rubric-popover-wrapper {
+      position: relative;
+      display: inline-block;
+    }
+    .rubric-rating-card {
+      position: relative;
+      border: 1px solid #dcdfe3;
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 12px;
+      background-color: #fafbfc;
+      flex: 1 1 120px;
+      cursor: pointer;
+      transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .rubric-rating-card:hover {
+      background-color: #f0f4f8;
+      border-color: #a0b2c6;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    }
+    .rubric-popover {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%) translateY(4px);
+      background-color: #273540;
+      color: #ffffff;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 1.4;
+      width: max-content;
+      max-width: 280px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+      word-wrap: break-word;
+      white-space: normal;
+      font-weight: normal;
+      text-align: left;
+    }
+    .rubric-popover p {
+      margin: 0;
+      color: #ffffff;
+    }
+    .rubric-popover::after {
+      content: "";
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border-width: 6px;
+      border-style: solid;
+      border-color: #273540 transparent transparent transparent;
+    }
+    .rubric-popover-wrapper:hover .rubric-popover,
+    .rubric-rating-card:hover .rubric-popover {
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(-50%) translateY(0);
+    }
   </style>
   <body>
     <!-- The container where React renders -->
     <div id="root" style="display: flex; width: 100%"></div>
 
-    <!-- Your React Component (Must use type="text/babel") -->
+    <!-- React Components (Must use type="text/babel") -->
     <script type="text/babel">
       const { createContext, useContext, useState, useEffect } = React;
 
@@ -397,6 +477,10 @@
 
       // If using UMD via script tag:
       const { get, set, del } = idbKeyval;
+
+      /**
+       * Creating a context for course data so it can be accessed by all components.
+       */
 
       function CourseContextProvider({ children }) {
         const [courseData, setCourseData] = useState(null);
@@ -505,6 +589,38 @@
         await walkDirectory(dirHandle);
         return jsonFilesObject;
       }
+      /**
+       * Creating a context so that we can enable navigation throughout the app
+       */
+      const NavigationContext = React.createContext();
+      function NavigationProvider({ children }) {
+        const [activeKey, setActiveKey] = useState("assignments");
+        const [selectedAssignmentId, setSelectedAssignmentId] =
+          useState(791358); // FIX: update to null when done developing
+        // Navigate to a main section (resets sub-view detail)
+        const navigateToSection = (key) => {
+          setActiveKey(key);
+          setSelectedAssignmentId(null);
+        };
+        // Navigate directly to a specific assignment detail view
+        const navigateToAssignment = (assignmentId) => {
+          setActiveKey("assignments"); // Keeps "Assignments" active on the left sidebar!
+          setSelectedAssignmentId(assignmentId);
+        };
+        return (
+          <NavigationContext.Provider
+            value={{
+              activeKey,
+              selectedAssignmentId,
+              navigateToSection,
+              navigateToAssignment,
+            }}
+          >
+            {children}
+          </NavigationContext.Provider>
+        );
+      }
+      const useNavigation = () => React.useContext(NavigationContext);
 
       // Inner component that safely consumes the Context
       function AppContent() {
@@ -600,7 +716,9 @@
       function OfflineApp() {
         return (
           <CourseContextProvider>
-            <AppContent />
+            <NavigationProvider>
+              <AppContent />
+            </NavigationProvider>
           </CourseContextProvider>
         );
       }
@@ -634,7 +752,9 @@
   <script type="text/babel">
     function MainContent() {
       const [showCourseList, setShowCourseList] = useState(true);
-      const [activeKey, setActiveKey] = useState("");
+      const { activeKey, selectedAssignmentId, navigateToSection } =
+        useNavigation();
+
       const { courseData } = useCourseContext();
 
       const elements = React.useMemo(() => {
@@ -643,7 +763,6 @@
         const list = [];
         if (courseData.FrontPage) {
           list.push({ key: "frontpage", title: "Home" });
-          setActiveKey("grades"); // FIX: Set default active key to "frontpage" if FrontPage exists
         }
         if (courseData.Assignments) {
           list.push({ key: "assignments", title: "Assignments" });
@@ -666,18 +785,53 @@
         }
         return list;
       }, [courseData]);
-      let breadcrumbList = [
-        { title: "Assignments", callback: () => alert("Assignments clicked") },
-        { title: "Home Work 1", callback: () => alert("HW1 clicked") },
-      ];
+
+      // Set initial active key safely in useEffect when course data loads
+      useEffect(() => {
+        if (courseData && !activeKey) {
+          if (courseData.FrontPage) {
+            navigateToSection("assignments");
+          } else if (elements.length > 0) {
+            navigateToSection(elements[0].key);
+          }
+        }
+      }, [courseData, elements, activeKey]);
+
+      // Find selected assignment object if viewing one
+      const currentAssignment = React.useMemo(() => {
+        if (!selectedAssignmentId || !courseData?.Assignments) return null;
+        const list = Array.isArray(courseData.Assignments)
+          ? courseData.Assignments
+          : Object.values(courseData.Assignments);
+        return list.find((a) => String(a.id) === String(selectedAssignmentId));
+      }, [selectedAssignmentId, courseData]);
+
+      // Dynamic breadcrumbs based on navigation state, never show breadcrumb for frontpage
+      const breadcrumbList = React.useMemo(() => {
+        const crumbs = [];
+        if (activeKey === "assignments") {
+          crumbs.push({
+            title: "Assignments",
+            callback: () => navigateToSection("assignments"),
+          });
+          if (currentAssignment) {
+            crumbs.push({ title: currentAssignment.name });
+          }
+        } else if (activeKey === "frontpage") {
+          return crumbs;
+        } else {
+          crumbs.push({
+            title: activeKey.charAt(0).toUpperCase() + activeKey.slice(1),
+          });
+        }
+        return crumbs;
+      }, [activeKey, currentAssignment]);
       return (
         <main style={{ marginLeft: "0px", width: "100%" }}>
           <div className="top-nav">
             <button
               id="courseMenuToggle"
-              onClick={() => {
-                setShowCourseList(!showCourseList);
-              }}
+              onClick={() => setShowCourseList(!showCourseList)}
             >
               <svg
                 width="24"
@@ -708,14 +862,11 @@
             {showCourseList && (
               <CourseList
                 elements={elements}
-                callback={(key) => {
-                  console.log(`Selected: ${key}`);
-                  setActiveKey(key);
-                }}
                 activeKey={activeKey}
+                callback={(key) => navigateToSection(key)}
               />
             )}
-            {renderActiveContent(activeKey)}
+            {renderActiveContent(activeKey, currentAssignment)}
           </div>
         </main>
       );
@@ -723,20 +874,20 @@
     /**
      * Switch statement to render the appropriate content based on the activeKey. It currently handles the "frontPage" case and a default case for other keys.
      */
-    function renderActiveContent(activeKey) {
+    function renderActiveContent(activeKey, currentAssignment) {
       switch (activeKey) {
-        case "frontpage":
-          return <HomePage />;
-          break;
         case "assignments":
-          return <AssignmentsPage />;
-          break;
-        case "modules":
-          return <ModulesPage />;
-          break;
+          return currentAssignment ? (
+            <AssignmentDetailView assignment={currentAssignment} />
+          ) : (
+            <AssignmentsPage />
+          );
         case "grades":
           return <GradesPage />;
-          break;
+        case "modules":
+          return <ModulesPage />;
+        case "frontpage":
+          return <HomePage />;
         default:
           return (
             <div className="canvas_content">
@@ -843,6 +994,7 @@
      */
     function TopBreadcrumbs({ list = [] }) {
       const { courseData } = useCourseContext();
+      const { navigateToSection } = useNavigation();
 
       if (!courseData) {
         return null;
@@ -853,7 +1005,15 @@
       return (
         <nav aria-label="breadcrumb">
           <ol className="top-breadcrumbs">
-            {courseTitle && <li className="breadcrumb-item">{courseTitle}</li>}
+            {courseTitle && (
+              <li
+                className="breadcrumb-item"
+                style={{ cursor: "pointer" }}
+                onClick={() => navigateToSection("frontpage")}
+              >
+                {courseTitle}
+              </li>
+            )}
 
             {Array.isArray(list) &&
               list.map((item, index) => (
@@ -910,7 +1070,10 @@
       const assignmentList = Array.isArray(courseData.Assignments)
         ? courseData.Assignments
         : Object.values(courseData.Assignments);
-
+      // sort assignments by reverse due date order
+      assignmentList.sort((a, b) => {
+        return new Date(b.due_at) - new Date(a.due_at);
+      });
       if (courseData.Assignments) {
         return (
           <div className="page-div" style={{ marginBottom: "4em" }}>
@@ -1428,6 +1591,209 @@
         </div>
       );
     }
+    function AssignmentRubric({ rubric }) {
+      if (!Array.isArray(rubric) || rubric.length === 0) {
+        return null;
+      }
+
+      return (
+        <div className="assignment-rubric-container" style={{ marginTop: "1em" }}>
+          <h3 style={{ fontSize: "1.1em", marginBottom: "0.5em", color: "#273540" }}>
+            Rubric
+          </h3>
+          <table
+            className="rubric-table"
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              border: "1px solid #e8eaec",
+              fontSize: "14px",
+            }}
+          >
+            <thead>
+              <tr style={{ backgroundColor: "#f2f4f4", textAlign: "left" }}>
+                <th style={{ padding: "8px 12px", borderBottom: "1px solid #ccc" }}>Criteria</th>
+                <th style={{ padding: "8px 12px", borderBottom: "1px solid #ccc" }}>Ratings</th>
+                <th style={{ padding: "8px 12px", borderBottom: "1px solid #ccc", textAlign: "right" }}>Pts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rubric.map((crit, idx) => (
+                <tr key={crit.id || idx} style={{ borderBottom: "1px solid #e8eaec" }}>
+                  <td style={{ padding: "10px 12px", verticalAlign: "top", width: "30%", borderRight: "1px solid #e8eaec" }}>
+                    <div className="rubric-popover-wrapper">
+                      <strong>{crit.description}</strong>
+                      {crit.long_description && (
+                        <div
+                          className="rubric-popover"
+                          dangerouslySetInnerHTML={{ __html: crit.long_description }}
+                        />
+                      )}
+                    </div>
+                    {crit.long_description && (
+                      <div
+                        style={{ fontSize: "12px", color: "#596a75", marginTop: "4px" }}
+                        dangerouslySetInnerHTML={{ __html: crit.long_description }}
+                      />
+                    )}
+                  </td>
+                  <td style={{ padding: "10px 12px", verticalAlign: "top" }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                      {Array.isArray(crit.ratings) &&
+                        crit.ratings.map((rating, rIdx) => {
+                          const popoverText = rating.long_description || rating.description;
+                          return (
+                            <div
+                              key={rating.id || rIdx}
+                              className="rubric-rating-card"
+                            >
+                              {popoverText && (
+                                <div
+                                  className="rubric-popover"
+                                  dangerouslySetInnerHTML={{ __html: popoverText }}
+                                />
+                              )}
+                              <div style={{ fontWeight: "bold", color: "#008148" }}>
+                                {rating.points} pts
+                              </div>
+                              <div>{rating.description}</div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </td>
+                  <td
+                    style={{
+                      padding: "10px 12px",
+                      verticalAlign: "top",
+                      textAlign: "right",
+                      fontWeight: "bold",
+                      width: "10%",
+                    }}
+                  >
+                    {crit.points} pts
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    function AssignmentDetailView({ assignment }) {
+      if (!assignment) {
+        return <h1>No Assignment Selected</h1>;
+      }
+      // date must be in format Sat Jun 3, 2023 12:50pm
+      // assignment?.due_at is in format 2023-06-03T19:50:15-04:00
+      function customDateFormat(date) {
+        const dateObj = new Date(date);
+        const dayOfWeek = dateObj.toLocaleDateString("en-US", {
+          weekday: "short",
+        });
+        const month = dateObj.toLocaleDateString("en-US", { month: "short" });
+        const day = dateObj.toLocaleDateString("en-US", { day: "numeric" });
+        const year = dateObj.toLocaleDateString("en-US", { year: "numeric" });
+        const time = dateObj.toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "numeric",
+        });
+        return `${dayOfWeek} ${month} ${day}, ${year} ${time}`;
+      }
+      function pointsDisplay(assignment) {
+        if (assignment?.grading_type == "points") {
+          return (
+            <>
+              <strong>
+                {assignment?.submission?.score ||
+                  (assignment?.submission?.missing ? "0" : "-")}
+                /{assignment?.points_possible}
+              </strong>
+              {" Points"}
+            </>
+          );
+        }
+        if (assignment?.grading_type == "not_graded") {
+          return <></>;
+        }
+        if (assignment?.grading_type == "pass_fail") {
+          return (
+            <>
+              {assignment?.submission?.grade == "complete"
+                ? "Complete"
+                : "Incomplete"}
+            </>
+          );
+        }
+        return <>error</>;
+      }
+
+      return (
+        <div
+          style={{ display: "flex", flexDirection: "column", width: "100%", marginBottom: "8em" }}
+        >
+          <div className="assignment-student-header">
+            <span style={{ display: "flex", flexDirection: "column" }}>
+              <span className="assignment-student-header-title">
+                {assignment?.name}
+              </span>
+              <span style={{ fontSize: "14px", fontWeight: "bold" }}>
+                Due:{" "}
+                {assignment?.due_at
+                  ? customDateFormat(assignment?.due_at)
+                  : "Not Set"}
+              </span>
+            </span>
+            <span
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: "0.5em",
+              }}
+            >
+              <span>
+                {assignment.submission?.late &&
+                  !assignment.submission?.missing && (
+                    <ContextPill type="late" />
+                  )}
+                {assignment.submission?.missing && (
+                  <ContextPill type="missing" />
+                )}
+              </span>
+              <span
+                style={{
+                  fontSize: "1.5em",
+                  textAlign: "right",
+                }}
+              >
+                {pointsDisplay(assignment)}
+              </span>
+            </span>
+          </div>
+          <div
+            className="assignment-information"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "left",
+              padding: "1em",
+            }}
+          >
+            {typeof assignment?.lock_explanation === "string" && (
+              <span>{assignment.lock_explanation}</span>
+            )}
+          </div>
+          <div
+            className="assignment-details"
+            dangerouslySetInnerHTML={{ __html: assignment?.description }}
+          />
+          <AssignmentRubric rubric={assignment?.rubric} />
+          {/*<span>Debug: {assignment?.id}</span>*/}
+        </div>
+      );
+    }
 
     // Multi-use components below
     // ------------------------------------------------------------------------------------------------------------------------------------
@@ -1492,7 +1858,9 @@
                       key={child.key || index}
                       className="collapse-table-item"
                       style={{
-                        borderLeft: isModuleItem ? "4px solid #03893d" : "none",
+                        borderLeft: isModuleItem
+                          ? "4px solid #03893d"
+                          : "1px solid #e8eaec",
                       }}
                     >
                       {child}
@@ -1599,6 +1967,7 @@
       type,
       indent,
     }) {
+      const { navigateToAssignment } = useNavigation();
       return (
         <div
           className="assignment-details"
@@ -1623,6 +1992,7 @@
             <h3
               className="assignment-info-title"
               style={{ fontSize: "16px", margin: "0", color: "#273450" }}
+              onClick={() => navigateToAssignment(assignment?.id)}
             >
               {title}
             </h3>
@@ -1793,7 +2163,9 @@
           >
             <td colSpan="6" style={{ padding: "0.5em 1em" }}>
               <strong>
-              This Assignment does not count twoards the final grade.</strong></td>
+                This Assignment does not count twoards the final grade.
+              </strong>
+            </td>
           </tr>
           <tr
             style={{
