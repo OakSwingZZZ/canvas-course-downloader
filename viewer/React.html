@@ -7,7 +7,10 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pptx2html@0.3.1/dist/pptx2html.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -1616,7 +1619,442 @@
         </div>
       );
     }
+    /** Replaces characters that are invalid or problematic in file paths. */
+    function sanitizeFilename(name) {
+      if (!name) return "untitled";
+      const cleaned = name
+        .replace(/[\u0000-\u001F\u007F]/g, "") // control chars
+        .replace(/[\u200B-\u200D\uFEFF]/g, "") // zero-width chars
+        .replace(/\u00A0/g, " ") // non-breaking space
+        .replace(/[/\\?%*:|"<>]/g, "-") // OS-reserved chars
+        .replace(/^\.+/, "") // leading dots
+        .replace(/[. ]+$/, "") // trailing dots/spaces
+        .replace(/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)/i, "_$1$2") // Windows reserved names
+        .trim();
+      return cleaned || "untitled";
+    }
+  
+    /**
+     * Uses mammoth to convert doc and docx to local attatchments
+     */
+    function DocxMemoryViewer({ fileObject, fileUrl }) {
+      const [htmlContent, setHtmlContent] = useState("");
+      const [loading, setLoading] = useState(true);
 
+      useEffect(() => {
+        async function convertDocx() {
+          try {
+            let arrayBuffer = null;
+            if (fileObject) {
+              arrayBuffer = await fileObject.arrayBuffer();
+            } else if (fileUrl) {
+              const res = await fetch(fileUrl);
+              arrayBuffer = await res.arrayBuffer();
+            }
+            if (!arrayBuffer) return;
+            // Converts binary .docx directly to raw HTML string
+            const result = await window.mammoth.convertToHtml({ arrayBuffer });
+            setHtmlContent(result.value);
+          } catch (err) {
+            console.error("Failed to parse docx", err);
+          } finally {
+            setLoading(false);
+          }
+        }
+        if (fileObject || fileUrl) convertDocx();
+      }, [fileObject, fileUrl]);
+
+      if (loading) return <div>Parsing document...</div>;
+
+      return (
+        <div
+          style={{
+            padding: "1.5rem",
+            backgroundColor: "#fff",
+            border: "1px solid #e5e7eb",
+            borderRadius: "0.25rem",
+            maxHeight: "30rem",
+            overflowY: "auto",
+            width: "100%",
+          }}
+          dangerouslySetInnerHTML={{ __html: htmlContent }}
+        />
+      );
+    }
+    // 1. Sub-component to handle asynchronous file loading and memory cleanup
+    function LocalAttachmentViewer({ attachment, assignment }) {
+      const { dirHandle } = useCourseContext();
+      const [fileUrl, setFileUrl] = useState(null);
+      const [fileObject, setFileObject] = useState(null);
+      const [error, setError] = useState(null);
+      const [isLoading, setIsLoading] = useState(true);
+
+      // Use display_name first because Canvas URL-encodes the 'filename' property
+      const rawFileName = attachment.display_name || attachment.filename;
+      const sanitizedAssignmentName = sanitizeFilename(assignment.name);
+      const sanitizedFileName = sanitizeFilename(rawFileName);
+
+      // Fetch the file from the File System API and create a readable URL
+      useEffect(() => {
+        if (!dirHandle) {
+          setError("No directory access.");
+          setIsLoading(false);
+          return;
+        }
+
+        let objectUrl = null;
+
+        async function loadLocalFile() {
+          try {
+            const submissionsHandle = await dirHandle.getDirectoryHandle("Submissions");
+            const assignmentHandle = await submissionsHandle.getDirectoryHandle(sanitizedAssignmentName);
+            const fileHandle = await assignmentHandle.getFileHandle(sanitizedFileName);
+            const file = await fileHandle.getFile();
+
+            setFileObject(file);
+            objectUrl = URL.createObjectURL(file);
+            setFileUrl(objectUrl);
+          } catch (err) {
+            console.warn(`Could not load local file: ${sanitizedFileName}`, err);
+            setError("File not found locally.");
+          } finally {
+            setIsLoading(false);
+          }
+        }
+
+        loadLocalFile();
+
+        // CRITICAL: Prevent memory leaks by revoking the URL when the component unmounts
+        return () => {
+          if (objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+          }
+        };
+      }, [dirHandle, sanitizedAssignmentName, sanitizedFileName]);
+
+      const formattedSize = (attachment.size / 1024).toFixed(1) + " KB";
+
+      if (isLoading) {
+        return (
+          <div
+            style={{
+              padding: "1rem",
+              backgroundColor: "#f3f4f6",
+              border: "1px solid #e5e7eb",
+              borderRadius: "0.25rem",
+              marginBottom: "1rem",
+            }}
+          >
+            Loading {rawFileName}...
+          </div>
+        );
+      }
+
+      if (error) {
+        return (
+          <div
+            style={{
+              padding: "1rem",
+              backgroundColor: "#fef2f2",
+              border: "1px solid #fecaca",
+              color: "#991b1b",
+              borderRadius: "0.25rem",
+              marginBottom: "1rem",
+            }}
+          >
+            {error} ({sanitizedFileName})
+          </div>
+        );
+      }
+
+      let content;
+      switch (attachment.mime_class) {
+        case "image":
+          content = (
+            <img
+              src={fileUrl}
+              alt={rawFileName}
+              style={{ maxWidth: "100%", height: "auto", border: "1px solid #e5e7eb", borderRadius: "0.25rem" }}
+            />
+          );
+          break;
+
+        case "video":
+          content = (
+            <video controls style={{ width: "100%", maxWidth: "42rem", border: "1px solid #e5e7eb", borderRadius: "0.25rem" }}>
+              <source src={fileUrl} />
+              Your browser does not support the video tag.
+            </video>
+          );
+          break;
+
+        case "pdf":
+        case "text":
+        case "html":
+          content = (
+            <iframe
+              src={fileUrl}
+              title={rawFileName}
+              style={{ width: "100%", height: "24rem", border: "1px solid #e5e7eb", borderRadius: "0.25rem", backgroundColor: "#fff" }}
+            />
+          );
+          break;
+
+        case "doc":
+          // Render .docx directly to HTML in memory!
+          content = <DocxMemoryViewer fileObject={fileObject} fileUrl={fileUrl} />;
+          break;
+        case "ppt":
+        case "xls":
+          content = (
+            <div
+              style={{
+                padding: "2rem",
+                backgroundColor: "#f9fafb",
+                border: "1px solid #e5e7eb",
+                borderRadius: "0.25rem",
+                textAlign: "center",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+              }}
+            >
+              <svg
+                style={{ width: "3rem", height: "3rem", color: "#3b82f6", marginBottom: "0.75rem" }}
+                fill='none'
+                stroke='currentColor'
+                viewBox='0 0 24 24'
+              >
+                <path
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
+                  strokeWidth='2'
+                  d='M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'
+                ></path>
+              </svg>
+              <p style={{ color: "#374151", fontWeight: "500", margin: "0 0 0.25rem 0" }}>Local Document File</p>
+              <p style={{ fontSize: "0.875rem", color: "#6b7280", margin: "0 0 1rem 0" }}>
+                Browsers cannot preview {attachment.mime_class} files directly.
+              </p>
+              <a
+                href={fileUrl}
+                download={sanitizedFileName} // Prompts browser to "save as" so user can open natively
+                style={{
+                  backgroundColor: "#dbeafe",
+                  color: "#1d4ed8",
+                  padding: "0.5rem 1rem",
+                  borderRadius: "0.25rem",
+                  fontWeight: "500",
+                  textDecoration: "none",
+                }}
+              >
+                Extract to view
+              </a>
+            </div>
+          );
+          break;
+
+        default:
+          content = (
+            <div
+              style={{
+                padding: "1rem",
+                backgroundColor: "#f3f4f6",
+                border: "1px solid #e5e7eb",
+                borderRadius: "0.25rem",
+                textAlign: "center",
+              }}
+            >
+              <p style={{ color: "#4b5563", margin: 0 }}>Preview not available for this file type.</p>
+            </div>
+          );
+      }
+
+      return (
+        <div
+          style={{
+            marginBottom: "1.5rem",
+            backgroundColor: "#fff",
+            padding: "1rem",
+            borderRadius: "0.5rem",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+            border: "1px solid #e5e7eb",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+            <h4
+              title={rawFileName}
+              style={{
+                fontWeight: "600",
+                color: "#1f2937",
+                margin: 0,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                maxWidth: "60%",
+              }}
+            >
+              {rawFileName}
+            </h4>
+
+            <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+              <span style={{ fontSize: "0.75rem", color: "#6b7280" }}>{formattedSize}</span>
+              <a
+                href={fileUrl}
+                download={sanitizedFileName}
+                style={{
+                  backgroundColor: "#2563eb",
+                  color: "#fff",
+                  fontSize: "0.875rem",
+                  padding: "0.25rem 0.75rem",
+                  borderRadius: "0.25rem",
+                  textDecoration: "none",
+                }}
+              >
+                Extract
+              </a>
+            </div>
+          </div>
+          <div
+            style={{
+              width: "100%",
+              display: "flex",
+              justifyContent: "center",
+              backgroundColor: "#f9fafb",
+              borderRadius: "0.25rem",
+              padding: "0.5rem",
+              boxSizing: "border-box",
+            }}
+          >
+            {content}
+          </div>
+        </div>
+      );
+    }
+
+    // 2. The Main Component (No longer needs to guess the local path)
+    function CanvasSubmission({ assignment }) {
+      const { dirHandle } = useCourseContext();
+
+      if (!assignment || !assignment.submission) {
+        return <div style={{ padding: "1rem", color: "#6b7280" }}>No submission data available.</div>;
+      }
+
+      // If we are looking at an assignment but haven't re-authenticated the folder handle yet
+      if (!dirHandle) {
+        return (
+          <div
+            style={{
+              padding: "1.5rem",
+              backgroundColor: "#fff3cd",
+              color: "#856404",
+              border: "1px solid #ffeeba",
+              borderRadius: "0.25rem",
+              marginTop: "1rem",
+            }}
+          >
+            <strong>Permission Required:</strong> We need permission to read your local files to show submissions. Please select your folder
+            from the Dashboard again.
+          </div>
+        );
+      }
+
+      const { submission } = assignment;
+
+      const renderSubmissionBody = () => {
+        switch (submission.submission_type) {
+          case "online_upload":
+            if (!submission.attachments || submission.attachments.length === 0) {
+              return <p style={{ color: "#6b7280" }}>No files were attached to this submission.</p>;
+            }
+            return (
+              <div>
+                {submission.attachments.map((attachment) => (
+                  <LocalAttachmentViewer key={attachment.id} attachment={attachment} assignment={assignment} />
+                ))}
+              </div>
+            );
+
+          case "online_text_entry":
+            return (
+              <div
+                style={{
+                  padding: "1rem",
+                  backgroundColor: "#fff",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "0.25rem",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                  overflowX: "auto",
+                }}
+                dangerouslySetInnerHTML={{ __html: submission.body }}
+              />
+            );
+
+          case "online_url":
+            return (
+              <div
+                style={{
+                  padding: "1rem",
+                  backgroundColor: "#fff",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "0.25rem",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                }}
+              >
+                <p style={{ margin: "0 0 0.5rem 0", color: "#4b5563" }}>Submitted URL:</p>
+                <a
+                  href={submission.url}
+                  target='_blank'
+                  rel='noopener noreferrer'
+                  style={{ color: "#2563eb", textDecoration: "none", wordBreak: "break-all" }}
+                >
+                  {submission.url}
+                </a>
+              </div>
+            );
+
+          default:
+            return (
+              <div
+                style={{
+                  padding: "1rem",
+                  backgroundColor: "#fefce8",
+                  border: "1px solid #fef08a",
+                  borderRadius: "0.25rem",
+                  color: "#854d0e",
+                }}
+              >
+                Unsupported submission type: {submission.submission_type}
+              </div>
+            );
+        }
+      };
+
+      return (
+        <div
+          style={{
+            maxWidth: "56rem",
+            margin: "1em 0",
+            padding: "1.5rem",
+            backgroundColor: "#f9fafb",
+            borderRadius: "8px",
+            border: "1px solid #e8eaec",
+          }}
+        >
+          <header style={{ marginBottom: "1.5rem", borderBottom: "1px solid #e5e7eb", paddingBottom: "1rem" }}>
+            <h3 style={{ fontSize: "1.25rem", fontWeight: "bold", color: "#111827", margin: "0 0 0.5rem 0" }}>Submitted Delivery</h3>
+            <div style={{ display: "flex", gap: "1rem", fontSize: "0.875rem", color: "#4b5563", flexWrap: "wrap" }}>
+              <p style={{ margin: 0 }}>
+                Status: <span style={{ fontWeight: "600", textTransform: "capitalize" }}>{submission.workflow_state}</span>
+              </p>
+              <p style={{ margin: 0 }}>Submitted: {new Date(submission.submitted_at).toLocaleString()}</p>
+            </div>
+          </header>
+
+          <section>{renderSubmissionBody()}</section>
+        </div>
+      );
+    }
 
     function AssignmentDetailView({ assignment }) {
       if (!assignment) {
