@@ -2042,7 +2042,7 @@
           }}
         >
           <header style={{ marginBottom: "1.5rem", borderBottom: "1px solid #e5e7eb", paddingBottom: "1rem" }}>
-            <h3 style={{ fontSize: "1.25rem", fontWeight: "bold", color: "#111827", margin: "0 0 0.5rem 0" }}>Submitted Delivery</h3>
+            <h3 style={{ fontSize: "1.25rem", fontWeight: "bold", color: "#111827", margin: "0 0 0.5rem 0" }}>Submission</h3>
             <div style={{ display: "flex", gap: "1rem", fontSize: "0.875rem", color: "#4b5563", flexWrap: "wrap" }}>
               <p style={{ margin: 0 }}>
                 Status: <span style={{ fontWeight: "600", textTransform: "capitalize" }}>{submission.workflow_state}</span>
@@ -2147,7 +2147,7 @@
           </div>
           <div className='assignment-details' dangerouslySetInnerHTML={{ __html: assignment?.description }} />
           <AssignmentRubric rubric={assignment?.rubric} />
-          <CanvasSubmission assignment={assignment} />
+          {assignment?.attachments && <CanvasSubmission assignment={assignment} />}
           {/*<span>Debug: {assignment?.id}</span>*/}
         </div>
       );
@@ -2351,6 +2351,7 @@
     }
 
     function GradeTableRow({ assignment, detailsHidden, hideDetailCallback, assignmentGroups }) {
+      const { navigateToAssignment } = useNavigation();
       let assignmentGroupName = "Unknown Assignment Group";
       if (assignmentGroups && assignmentGroups.length > 0) {
         // takes a list of assignment groups and finds the name of the group that matches the assignment's group ID
@@ -2392,7 +2393,7 @@
         <>
           <tr className='grade-row' key={assignment.id}>
             <td style={{ maxWidth: "30%" }}>
-              <a href='#implement' className='assignment-link'>
+              <a href='#' className='assignment-link' onClick={() => navigateToAssignment(assignment.id)}>
                 {assignment.name}
               </a>
               <div style={{ fontSize: "14px", color: "rgb(39, 53, 64)" }}>{assignmentGroupName}</div>
