@@ -4,18 +4,9 @@
     <meta charset="UTF-8" />
     <title>Canvas Viewer</title>
 
-    <script
-      crossorigin
-      src="https://unpkg.com/react@18/umd/react.development.js"
-    ></script>
-    <script
-      crossorigin
-      src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
-    ></script>
-    <script
-      crossorigin
-      src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
-    ></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -45,8 +36,7 @@
     }
     body {
       /* Lato Extended font */
-      font-family:
-        "Lato Extended", Lato, "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-family: "Lato Extended", Lato, "Helvetica Neue", Helvetica, Arial, sans-serif;
       margin: 0px;
       display: flex;
       flex-direction: row;
@@ -413,7 +403,10 @@
       background-color: #fafbfc;
       flex: 1 1 120px;
       cursor: pointer;
-      transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+      transition:
+        background-color 0.15s ease,
+        border-color 0.15s ease,
+        box-shadow 0.15s ease;
     }
     .rubric-rating-card:hover {
       background-color: #f0f4f8;
@@ -438,7 +431,10 @@
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
-      transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+      transition:
+        opacity 0.2s ease,
+        visibility 0.2s ease,
+        transform 0.2s ease;
       word-wrap: break-word;
       white-space: normal;
       font-weight: normal;
@@ -482,49 +478,64 @@
        * Creating a context for course data so it can be accessed by all components.
        */
 
+      // Helper function to check and request permissions for a handle
+      async function verifyPermission(directoryHandle, mode = "read") {
+        const options = { mode };
+
+        // Check if we already have permission
+        if ((await directoryHandle.queryPermission(options)) === "granted") {
+          return true;
+        }
+
+        // If not, request permission (this must be triggered by a user gesture, like a button click)
+        if ((await directoryHandle.requestPermission(options)) === "granted") {
+          return true;
+        }
+
+        return false;
+      }
+
       function CourseContextProvider({ children }) {
         const [courseData, setCourseData] = useState(null);
+        const [dirHandle, setDirHandle] = useState(null);
         const [isProcessing, setIsProcessing] = useState(true); // Start loading saved data
 
-        // On mount, load previously saved JSON data from IndexedDB
+        // On mount, load previously saved JSON data and the directory handle from IndexedDB
         useEffect(() => {
-          async function loadCachedCourse() {
+          async function loadCachedData() {
             try {
-              const cachedData = await get("cachedCourseData");
-              if (cachedData) {
-                setCourseData(cachedData);
-              }
+              const [cachedData, cachedHandle] = await Promise.all([get("cachedCourseData"), get("courseDirectoryHandle")]);
+
+              if (cachedData) setCourseData(cachedData);
+              if (cachedHandle) setDirHandle(cachedHandle);
             } catch (err) {
-              console.error(
-                "Failed to load cached course data from storage:",
-                err,
-              );
+              console.error("Failed to load cached data from storage:", err);
             } finally {
               setIsProcessing(false);
             }
           }
 
-          loadCachedCourse();
+          loadCachedData();
         }, []);
 
-        // Handle folder picking and save parsed JSON
+        // Initial folder selection (User picks the folder)
         const handleFolderSelect = async () => {
           setIsProcessing(true);
           try {
             // Prompt user for folder access (using File System Access API)
-            const dirHandle = await window.showDirectoryPicker();
-            let jsonFilesObject = await scrapeJsonFiles(dirHandle);
+            const handle = await window.showDirectoryPicker();
+            let jsonFilesObject = await scrapeJsonFiles(handle);
 
             if (jsonFilesObject?.manifest?.manifestVersion >= 2) {
               // Save to React State
               setCourseData(jsonFilesObject);
+              setDirHandle(handle);
 
-              // Save parsed JSON object directly into IndexedDB
+              // Save to IndexedDB
               await set("cachedCourseData", jsonFilesObject);
+              await set("courseDirectoryHandle", handle); // <-- Saving the handle
             } else {
-              alert(
-                "Invalid manifest version. Please select a valid course folder.",
-              );
+              alert("Invalid manifest version. Please select a valid course folder.");
             }
           } catch (err) {
             console.error("Access denied or error digesting folder", err);
@@ -533,18 +544,45 @@
           }
         };
 
-        // Clear stored data (e.g., if user wants to open a different course)
+        // Re-authenticate an existing handle (User grants permission to previously saved folder)
+        const reconnectFolder = async () => {
+          if (!dirHandle) return;
+
+          setIsProcessing(true);
+          try {
+            // This will prompt the browser permission dialog if needed
+            const hasPermission = await verifyPermission(dirHandle, "read");
+
+            if (hasPermission) {
+              // You now have active access to the folder again!
+              // Optional: Re-scrape the folder here to get fresh data instead of using cache
+              // let freshData = await scrapeJsonFiles(dirHandle);
+              console.log("Permission granted! Directory handle is active.");
+            } else {
+              alert("Permission to access the folder was denied.");
+            }
+          } catch (err) {
+            console.error("Error reconnecting to folder:", err);
+          } finally {
+            setIsProcessing(false);
+          }
+        };
+
+        // Clear stored data
         const clearCourseData = async () => {
-          await del("cachedCourseData");
+          await Promise.all([del("cachedCourseData"), del("courseDirectoryHandle")]);
           setCourseData(null);
+          setDirHandle(null);
         };
 
         return (
           <CourseContext.Provider
             value={{
               courseData,
+              dirHandle,
               isProcessing,
               handleFolderSelect,
+              reconnectFolder, // Export the new function
               clearCourseData,
             }}
           >
@@ -552,6 +590,7 @@
           </CourseContext.Provider>
         );
       }
+
       function useCourseContext() {
         return useContext(CourseContext);
       }
@@ -574,10 +613,7 @@
                 // Use the file name as the key, stripping the .json extension
                 jsonFilesObject[entry.name.slice(0, -5)] = parsedData;
               } catch (err) {
-                console.warn(
-                  `Failed to parse JSON for file: ${entry.name}`,
-                  err,
-                );
+                console.warn(`Failed to parse JSON for file: ${entry.name}`, err);
               }
             } else if (entry.kind === "directory") {
               // Recurse into nested subfolders
@@ -595,8 +631,7 @@
       const NavigationContext = React.createContext();
       function NavigationProvider({ children }) {
         const [activeKey, setActiveKey] = useState("assignments");
-        const [selectedAssignmentId, setSelectedAssignmentId] =
-          useState(791358); // FIX: update to null when done developing
+        const [selectedAssignmentId, setSelectedAssignmentId] = useState(812219); // FIX: update to null when done developing
         // Navigate to a main section (resets sub-view detail)
         const navigateToSection = (key) => {
           setActiveKey(key);
@@ -628,84 +663,66 @@
 
         return (
           <>
-            <nav id="sidebar_nav">
-              <div className="side_navigation_item" style={{ height: "85px" }}>
+            <nav id='sidebar_nav'>
+              <div className='side_navigation_item' style={{ height: "85px" }}>
                 <img
-                  src="data:image/png;base64,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"
-                  alt=""
-                  width="48"
-                  height="48"
+                  src='data:image/png;base64,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'
+                  alt=''
+                  width='48'
+                  height='48'
                 />
               </div>
-              <div className="side_navigation_item">
+              <div className='side_navigation_item'>
                 <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="ic-nav"
-                  version="1.1"
-                  x="0"
-                  y="0"
-                  viewBox="0 0 280 200"
-                  enableBackground="new 0 0 280 200"
+                  xmlns='http://www.w3.org/2000/svg'
+                  className='ic-nav'
+                  version='1.1'
+                  x='0'
+                  y='0'
+                  viewBox='0 0 280 200'
+                  enableBackground='new 0 0 280 200'
                   //   xml:space="preserve"
                 >
-                  <path d="M273.09,180.75H197.47V164.47h62.62A122.16,122.16,0,1,0,17.85,142a124,124,0,0,0,2,22.51H90.18v16.29H6.89l-1.5-6.22A138.51,138.51,0,0,1,1.57,142C1.57,65.64,63.67,3.53,140,3.53S278.43,65.64,278.43,142a137.67,137.67,0,0,1-3.84,32.57ZM66.49,87.63,50.24,71.38,61.75,59.86,78,76.12Zm147,0L202,76.12l16.25-16.25,11.51,11.51ZM131.85,53.82v-23h16.29v23Zm15.63,142.3a31.71,31.71,0,0,1-28-16.81c-6.4-12.08-15.73-72.29-17.54-84.25a8.15,8.15,0,0,1,13.58-7.2c8.88,8.21,53.48,49.72,59.88,61.81a31.61,31.61,0,0,1-27.9,46.45ZM121.81,116.2c4.17,24.56,9.23,50.21,12,55.49A15.35,15.35,0,1,0,161,157.3C158.18,152,139.79,133.44,121.81,116.2Z"></path>
+                  <path d='M273.09,180.75H197.47V164.47h62.62A122.16,122.16,0,1,0,17.85,142a124,124,0,0,0,2,22.51H90.18v16.29H6.89l-1.5-6.22A138.51,138.51,0,0,1,1.57,142C1.57,65.64,63.67,3.53,140,3.53S278.43,65.64,278.43,142a137.67,137.67,0,0,1-3.84,32.57ZM66.49,87.63,50.24,71.38,61.75,59.86,78,76.12Zm147,0L202,76.12l16.25-16.25,11.51,11.51ZM131.85,53.82v-23h16.29v23Zm15.63,142.3a31.71,31.71,0,0,1-28-16.81c-6.4-12.08-15.73-72.29-17.54-84.25a8.15,8.15,0,0,1,13.58-7.2c8.88,8.21,53.48,49.72,59.88,61.81a31.61,31.61,0,0,1-27.9,46.45ZM121.81,116.2c4.17,24.56,9.23,50.21,12,55.49A15.35,15.35,0,1,0,161,157.3C158.18,152,139.79,133.44,121.81,116.2Z'></path>
                 </svg>
                 Dashboard
               </div>
-              <div className="side_navigation_item">
+              <div className='side_navigation_item'>
                 <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="ic-nav"
-                  version="1.1"
-                  x="0"
-                  y="0"
-                  viewBox="0 0 280 200"
-                  enableBackground="new 0 0 280 200"
+                  xmlns='http://www.w3.org/2000/svg'
+                  className='ic-nav'
+                  version='1.1'
+                  x='0'
+                  y='0'
+                  viewBox='0 0 280 200'
+                  enableBackground='new 0 0 280 200'
                   //   xml:space="preserve"
                 >
-                  <path d="M73.31,198c-11.93,0-22.22,8-24,18.73a26.67,26.67,0,0,0-.3,3.63v.3a22,22,0,0,0,5.44,14.65,22.47,22.47,0,0,0,17.22,8H200V228.19h-134V213.08H200V198Zm21-105.74h90.64V62H94.3ZM79.19,107.34V46.92H200v60.42Zm7.55,30.21V122.45H192.49v15.11ZM71.65,16.71A22.72,22.72,0,0,0,49,39.36V190.88a41.12,41.12,0,0,1,24.32-8h157V16.71ZM33.88,39.36A37.78,37.78,0,0,1,71.65,1.6H245.36V198H215.15v45.32h22.66V258.4H71.65a37.85,37.85,0,0,1-37.76-37.76Z"></path>
+                  <path d='M73.31,198c-11.93,0-22.22,8-24,18.73a26.67,26.67,0,0,0-.3,3.63v.3a22,22,0,0,0,5.44,14.65,22.47,22.47,0,0,0,17.22,8H200V228.19h-134V213.08H200V198Zm21-105.74h90.64V62H94.3ZM79.19,107.34V46.92H200v60.42Zm7.55,30.21V122.45H192.49v15.11ZM71.65,16.71A22.72,22.72,0,0,0,49,39.36V190.88a41.12,41.12,0,0,1,24.32-8h157V16.71ZM33.88,39.36A37.78,37.78,0,0,1,71.65,1.6H245.36V198H215.15v45.32h22.66V258.4H71.65a37.85,37.85,0,0,1-37.76-37.76Z'></path>
                 </svg>
                 Courses
               </div>
-              <div className="side_navigation_item">
-                <svg
-                  fill="white"
-                  height="24px"
-                  viewBox="0 0 1920 1920"
-                  xmlns="http://www.w3.org/2000/svg"
-                  style={{ marginBottom: "4px" }}
-                >
+              <div className='side_navigation_item'>
+                <svg fill='white' height='24px' viewBox='0 0 1920 1920' xmlns='http://www.w3.org/2000/svg' style={{ marginBottom: "4px" }}>
                   <path
-                    d="m1739.34 1293.414-105.827 180.818-240.225-80.188-24.509 22.25c-69.91 63.586-150.211 109.666-238.644 136.771l-32.076 9.94-49.468 244.065H835.584l-49.468-244.179-32.076-9.939c-88.432-27.105-168.734-73.185-238.644-136.771l-24.508-22.25-240.226 80.189-105.826-180.82 189.74-164.442-7.453-32.978c-10.39-45.742-15.586-91.483-15.586-135.869 0-44.386 5.195-90.127 15.586-135.868l7.454-32.979-189.741-164.442 105.826-180.819 240.226 80.075 24.508-22.25c69.91-63.585 150.212-109.665 238.644-136.884l32.076-9.826 49.468-244.066h213.007l49.468 244.18 32.076 9.825c88.433 27.219 168.734 73.186 238.644 136.885l24.509 22.25 240.225-80.189 105.826 180.819-189.74 164.442 7.453 32.98c10.39 45.74 15.586 91.481 15.586 135.867 0 44.386-5.195 90.127-15.586 135.869l-7.454 32.978 189.741 164.556Zm-53.76-333.403c0-41.788-3.84-84.48-11.634-127.284l210.184-182.062-199.454-340.856-265.186 88.433c-66.974-55.567-143.322-99.388-223.85-128.414L1140.977.01H743.198l-54.663 269.704c-81.431 29.139-156.424 72.282-223.963 128.414L199.5 309.809.045 650.665l210.07 182.062c-7.68 42.804-11.52 85.496-11.52 127.284 0 41.789 3.84 84.48 11.52 127.172L.046 1269.357 199.5 1610.214l265.186-88.546c66.974 55.68 143.323 99.388 223.85 128.527l54.663 269.816h397.779l54.663-269.703c81.318-29.252 156.424-72.283 223.85-128.527l265.186 88.546 199.454-340.857-210.184-182.174c7.793-42.805 11.633-85.496 11.633-127.285ZM942.075 564.706C724.1 564.706 546.782 742.024 546.782 960c0 217.976 177.318 395.294 395.294 395.294 217.977 0 395.294-177.318 395.294-395.294 0-217.976-177.317-395.294-395.294-395.294m0 677.647c-155.633 0-282.353-126.72-282.353-282.353s126.72-282.353 282.353-282.353S1224.43 804.367 1224.43 960s-126.72 282.353-282.353 282.353"
-                    fillRule="evenodd"
+                    d='m1739.34 1293.414-105.827 180.818-240.225-80.188-24.509 22.25c-69.91 63.586-150.211 109.666-238.644 136.771l-32.076 9.94-49.468 244.065H835.584l-49.468-244.179-32.076-9.939c-88.432-27.105-168.734-73.185-238.644-136.771l-24.508-22.25-240.226 80.189-105.826-180.82 189.74-164.442-7.453-32.978c-10.39-45.742-15.586-91.483-15.586-135.869 0-44.386 5.195-90.127 15.586-135.868l7.454-32.979-189.741-164.442 105.826-180.819 240.226 80.075 24.508-22.25c69.91-63.585 150.212-109.665 238.644-136.884l32.076-9.826 49.468-244.066h213.007l49.468 244.18 32.076 9.825c88.433 27.219 168.734 73.186 238.644 136.885l24.509 22.25 240.225-80.189 105.826 180.819-189.74 164.442 7.453 32.98c10.39 45.74 15.586 91.481 15.586 135.867 0 44.386-5.195 90.127-15.586 135.869l-7.454 32.978 189.741 164.556Zm-53.76-333.403c0-41.788-3.84-84.48-11.634-127.284l210.184-182.062-199.454-340.856-265.186 88.433c-66.974-55.567-143.322-99.388-223.85-128.414L1140.977.01H743.198l-54.663 269.704c-81.431 29.139-156.424 72.282-223.963 128.414L199.5 309.809.045 650.665l210.07 182.062c-7.68 42.804-11.52 85.496-11.52 127.284 0 41.789 3.84 84.48 11.52 127.172L.046 1269.357 199.5 1610.214l265.186-88.546c66.974 55.68 143.323 99.388 223.85 128.527l54.663 269.816h397.779l54.663-269.703c81.318-29.252 156.424-72.283 223.85-128.527l265.186 88.546 199.454-340.857-210.184-182.174c7.793-42.805 11.633-85.496 11.633-127.285ZM942.075 564.706C724.1 564.706 546.782 742.024 546.782 960c0 217.976 177.318 395.294 395.294 395.294 217.977 0 395.294-177.318 395.294-395.294 0-217.976-177.317-395.294-395.294-395.294m0 677.647c-155.633 0-282.353-126.72-282.353-282.353s126.72-282.353 282.353-282.353S1224.43 804.367 1224.43 960s-126.72 282.353-282.353 282.353'
+                    fillRule='evenodd'
                   />
                 </svg>
                 Settings
               </div>
-              <div
-                className="side_navigation_item"
-                onClick={() => clearCourseData()}
-              >
-                <svg
-                  fill="white"
-                  height="24px"
-                  viewBox="0 0 1920 1920"
-                  xmlns="http://www.w3.org/2000/svg"
-                  style={{ marginBottom: "4px" }}
-                >
+              <div className='side_navigation_item' onClick={() => clearCourseData()}>
+                <svg fill='white' height='24px' viewBox='0 0 1920 1920' xmlns='http://www.w3.org/2000/svg' style={{ marginBottom: "4px" }}>
                   <path
-                    d="M960 0v112.941c467.125 0 847.059 379.934 847.059 847.059 0 467.125-379.934 847.059-847.059 847.059-467.125 0-847.059-379.934-847.059-847.059 0-267.106 126.607-515.915 338.824-675.727v393.374h112.94V112.941H0v112.941h342.89C127.058 407.38 0 674.711 0 960c0 529.355 430.645 960 960 960s960-430.645 960-960S1489.355 0 960 0"
-                    fillRule="evenodd"
+                    d='M960 0v112.941c467.125 0 847.059 379.934 847.059 847.059 0 467.125-379.934 847.059-847.059 847.059-467.125 0-847.059-379.934-847.059-847.059 0-267.106 126.607-515.915 338.824-675.727v393.374h112.94V112.941H0v112.941h342.89C127.058 407.38 0 674.711 0 960c0 529.355 430.645 960 960 960s960-430.645 960-960S1489.355 0 960 0'
+                    fillRule='evenodd'
                   />
                 </svg>
                 Reset
               </div>
             </nav>
-            <div className="nav_spacer" style={{ minWidth: "85px" }}></div>
-            <div
-              id="main-content"
-              style={{ alignItems: !courseData ? "center" : "inherit" }}
-            >
+            <div className='nav_spacer' style={{ minWidth: "85px" }}></div>
+            <div id='main-content' style={{ alignItems: !courseData ? "center" : "inherit" }}>
               {courseData !== null ? <MainContent /> : <CoursePicker />}
             </div>
           </>
@@ -734,12 +751,9 @@
         const { handleFolderSelect, isProcessing } = useCourseContext();
 
         return (
-          <div className="course-picker">
+          <div className='course-picker'>
             <h1>Welcome to the Offline Course Viewer</h1>
-            <p>
-              Please select a course folder to begin. The folder should contain
-              the course content and metadata.
-            </p>
+            <p>Please select a course folder to begin. The folder should contain the course content and metadata.</p>
             <button onClick={handleFolderSelect} disabled={isProcessing}>
               {isProcessing ? "Processing..." : "Select Course Folder"}
             </button>
@@ -752,8 +766,7 @@
   <script type="text/babel">
     function MainContent() {
       const [showCourseList, setShowCourseList] = useState(true);
-      const { activeKey, selectedAssignmentId, navigateToSection } =
-        useNavigation();
+      const { activeKey, selectedAssignmentId, navigateToSection } = useNavigation();
 
       const { courseData } = useCourseContext();
 
@@ -800,9 +813,7 @@
       // Find selected assignment object if viewing one
       const currentAssignment = React.useMemo(() => {
         if (!selectedAssignmentId || !courseData?.Assignments) return null;
-        const list = Array.isArray(courseData.Assignments)
-          ? courseData.Assignments
-          : Object.values(courseData.Assignments);
+        const list = Array.isArray(courseData.Assignments) ? courseData.Assignments : Object.values(courseData.Assignments);
         return list.find((a) => String(a.id) === String(selectedAssignmentId));
       }, [selectedAssignmentId, courseData]);
 
@@ -828,29 +839,18 @@
       }, [activeKey, currentAssignment]);
       return (
         <main style={{ marginLeft: "0px", width: "100%" }}>
-          <div className="top-nav">
-            <button
-              id="courseMenuToggle"
-              onClick={() => setShowCourseList(!showCourseList)}
-            >
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              >
-                <line x1="3" y1="12" x2="21" y2="12"></line>
-                <line x1="3" y1="6" x2="21" y2="6"></line>
-                <line x1="3" y1="18" x2="21" y2="18"></line>
+          <div className='top-nav'>
+            <button id='courseMenuToggle' onClick={() => setShowCourseList(!showCourseList)}>
+              <svg width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'>
+                <line x1='3' y1='12' x2='21' y2='12'></line>
+                <line x1='3' y1='6' x2='21' y2='6'></line>
+                <line x1='3' y1='18' x2='21' y2='18'></line>
               </svg>
             </button>
             <TopBreadcrumbs list={breadcrumbList} />
           </div>
           <div
-            className="bottom_section"
+            className='bottom_section'
             style={{
               display: "flex",
               flexDirection: "row",
@@ -859,13 +859,7 @@
               marginLeft: "20px",
             }}
           >
-            {showCourseList && (
-              <CourseList
-                elements={elements}
-                activeKey={activeKey}
-                callback={(key) => navigateToSection(key)}
-              />
-            )}
+            {showCourseList && <CourseList elements={elements} activeKey={activeKey} callback={(key) => navigateToSection(key)} />}
             {renderActiveContent(activeKey, currentAssignment)}
           </div>
         </main>
@@ -877,11 +871,7 @@
     function renderActiveContent(activeKey, currentAssignment) {
       switch (activeKey) {
         case "assignments":
-          return currentAssignment ? (
-            <AssignmentDetailView assignment={currentAssignment} />
-          ) : (
-            <AssignmentsPage />
-          );
+          return currentAssignment ? <AssignmentDetailView assignment={currentAssignment} /> : <AssignmentsPage />;
         case "grades":
           return <GradesPage />;
         case "modules":
@@ -890,14 +880,11 @@
           return <HomePage />;
         default:
           return (
-            <div className="canvas_content">
-              Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do
-              eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut
-              enim ad minim veniam, quis nostrud exercitation ullamco laboris
-              nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in
-              reprehenderit in voluptate velit esse cillum dolore eu fugiat
-              nulla pariatur. Excepteur sint occaecat cupidatat non proident,
-              sunt in culpa qui officia deserunt mollit anim id est laborum.
+            <div className='canvas_content'>
+              Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut
+              enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor
+              in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non
+              proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
               <h1>Active key: {activeKey}</h1>
             </div>
           );
@@ -918,14 +905,13 @@
       const { courseData } = useCourseContext();
 
       if (courseData) {
-        courseSubtitle =
-          courseData?.manifest?.courseTerm?.name || "Course Menu";
+        courseSubtitle = courseData?.manifest?.courseTerm?.name || "Course Menu";
       }
 
       return (
         <div
-          className="course-item-list"
-          id="course_item_list"
+          className='course-item-list'
+          id='course_item_list'
           style={{
             position: "sticky", // Makes it sticky
             top: "0px", // Distance from top of screen when scrolling
@@ -936,7 +922,7 @@
           }}
         >
           <div
-            className="couse_subtitle"
+            className='couse_subtitle'
             style={{
               fontSize: "11px",
               overflow: "hidden",
@@ -950,21 +936,15 @@
             <i>{courseSubtitle}</i>
           </div>
           <nav>
-            <ul
-              id="courseList"
-              style={{ display: "block", listStyle: "none", padding: 0 }}
-            >
+            <ul id='courseList' style={{ display: "block", listStyle: "none", padding: 0 }}>
               {elements.map((element, index) => (
-                <li
-                  className={`course-item ${activeKey === element.key ? "active-course-item" : ""}`}
-                  key={element.key || index}
-                >
+                <li className={`course-item ${activeKey === element.key ? "active-course-item" : ""}`} key={element.key || index}>
                   <a
                     onClick={(e) => {
                       e.preventDefault(); // Prevents page from jumping to top on link click
                       handleCourseItemClick(element.key, callback);
                     }}
-                    href="#"
+                    href='#'
                   >
                     {element.title}
                   </a>
@@ -1003,14 +983,10 @@
       const courseTitle = courseData?.manifest?.course;
 
       return (
-        <nav aria-label="breadcrumb">
-          <ol className="top-breadcrumbs">
+        <nav aria-label='breadcrumb'>
+          <ol className='top-breadcrumbs'>
             {courseTitle && (
-              <li
-                className="breadcrumb-item"
-                style={{ cursor: "pointer" }}
-                onClick={() => navigateToSection("frontpage")}
-              >
+              <li className='breadcrumb-item' style={{ cursor: "pointer" }} onClick={() => navigateToSection("frontpage")}>
                 {courseTitle}
               </li>
             )}
@@ -1019,7 +995,7 @@
               list.map((item, index) => (
                 <li
                   key={item.id || index}
-                  className="breadcrumb-item"
+                  className='breadcrumb-item'
                   onClick={item.callback}
                   style={item.callback ? { cursor: "pointer" } : undefined}
                 >
@@ -1043,14 +1019,9 @@
         return <div>No course home page available.</div>;
       } else if (courseData.FrontPage) {
         return courseData.FrontPage.body ? (
-          <div className="page-div">
-            <h1 style={{ color: "#666666", fontSize: 28.8 }}>
-              {courseData.manifest.course}
-            </h1>
-            <div
-              id="home-page-content"
-              dangerouslySetInnerHTML={{ __html: courseData.FrontPage.body }}
-            />
+          <div className='page-div'>
+            <h1 style={{ color: "#666666", fontSize: 28.8 }}>{courseData.manifest.course}</h1>
+            <div id='home-page-content' dangerouslySetInnerHTML={{ __html: courseData.FrontPage.body }} />
           </div>
         ) : (
           <div>No content available for the course home page.</div>
@@ -1067,28 +1038,22 @@
         return <div>No assignments available.</div>;
       }
       // Convert dictionary object or array into a flat array of assignments
-      const assignmentList = Array.isArray(courseData.Assignments)
-        ? courseData.Assignments
-        : Object.values(courseData.Assignments);
+      const assignmentList = Array.isArray(courseData.Assignments) ? courseData.Assignments : Object.values(courseData.Assignments);
       // sort assignments by reverse due date order
       assignmentList.sort((a, b) => {
         return new Date(b.due_at) - new Date(a.due_at);
       });
       if (courseData.Assignments) {
         return (
-          <div className="page-div" style={{ marginBottom: "4em" }}>
+          <div className='page-div' style={{ marginBottom: "4em" }}>
             <h1 style={{ color: "#666666", fontSize: 28.8 }}>Assignments</h1>
-            <CollapseTable title="Assignments">
+            <CollapseTable title='Assignments'>
               {assignmentList.map((assignment, index) => (
                 <CollapseListItemDetails
                   key={assignment.id}
                   closed={assignment?.availability_status?.status || "Unknown"} // Uses 'availability_status.status' from Canvas JSON
                   title={assignment?.name || "No Title"} // Uses 'name' from Canvas JSON
-                  dueDate={
-                    assignment?.due_at
-                      ? fixDateFormat(assignment?.due_at)
-                      : "No Due Date"
-                  }
+                  dueDate={assignment?.due_at ? fixDateFormat(assignment?.due_at) : "No Due Date"}
                   grade={assignment?.submission?.score || "-"}
                   maxGrade={assignment?.points_possible} // Uses 'points_possible' from Canvas JSON
                   assignment={assignment}
@@ -1132,9 +1097,7 @@
         return <div>No modules available.</div>;
       }
       // Convert dictionary object or array into a flat array of modules
-      const moduleList = Array.isArray(courseData.Modules)
-        ? courseData.Modules
-        : Object.values(courseData.Modules);
+      const moduleList = Array.isArray(courseData.Modules) ? courseData.Modules : Object.values(courseData.Modules);
 
       const [openStates, setOpenStates] = useState(() => {
         const initial = {};
@@ -1176,7 +1139,7 @@
 
       return (
         <div
-          className="page-div"
+          className='page-div'
           style={{
             marginBottom: "4em",
             display: "flex",
@@ -1220,9 +1183,7 @@
                   key={item.id}
                   closed={item?.availability_status?.status || "Unknown"} // Uses 'availability_status.status' from Canvas JSON
                   title={item?.title || "No Title"} // Uses 'title' from Canvas JSON
-                  dueDate={
-                    item?.due_at ? fixDateFormat(item?.due_at) : "No Due Date"
-                  }
+                  dueDate={item?.due_at ? fixDateFormat(item?.due_at) : "No Due Date"}
                   grade={item?.submission?.score || "-"}
                   maxGrade={item?.points_possible} // Uses 'points_possible' from Canvas JSON
                   type={handleItemType(item)} // Uses 'type' from Canvas JSON, converted to lowercase
@@ -1248,9 +1209,7 @@
       }
 
       // Convert dictionary object or array into a flat array of grades
-      let gradeList = Array.isArray(courseData.Assignments)
-        ? courseData.Assignments
-        : Object.values(courseData.Assignments);
+      let gradeList = Array.isArray(courseData.Assignments) ? courseData.Assignments : Object.values(courseData.Assignments);
 
       // Set the default sorting method for the grades page
       let [sortBy, setSortBy] = useState("due");
@@ -1270,8 +1229,7 @@
             assignment.grading_type !== "not_graded" &&
             (selectedGradingPeriod === "all" ||
               (assignment?.submission?.grading_period_id != null &&
-                String(assignment.submission.grading_period_id) ===
-                  String(selectedGradingPeriod))),
+                String(assignment.submission.grading_period_id) === String(selectedGradingPeriod))),
         )
         .sort((a, b) => {
           if (sortBy === "due") {
@@ -1281,22 +1239,13 @@
           } else if (sortBy === "name") {
             return (a.name || "").localeCompare(b.name || "");
           } else if (sortBy === "submitted") {
-            const aSub = a.submission?.submitted_at
-              ? new Date(a.submission.submitted_at)
-              : new Date(0);
-            const bSub = b.submission?.submitted_at
-              ? new Date(b.submission.submitted_at)
-              : new Date(0);
+            const aSub = a.submission?.submitted_at ? new Date(a.submission.submitted_at) : new Date(0);
+            const bSub = b.submission?.submitted_at ? new Date(b.submission.submitted_at) : new Date(0);
             return aSub - bSub;
           } else if (sortBy === "status") {
-            return (a.submission?.workflow_state || "").localeCompare(
-              b.submission?.workflow_state || "",
-            );
+            return (a.submission?.workflow_state || "").localeCompare(b.submission?.workflow_state || "");
           } else if (sortBy === "assignment_group") {
-            return (
-              (Number(a.assignment_group_id) || 0) -
-              (Number(b.assignment_group_id) || 0)
-            );
+            return (Number(a.assignment_group_id) || 0) - (Number(b.assignment_group_id) || 0);
           }
           return 0;
         });
@@ -1306,8 +1255,7 @@
         assignmentGroups = courseData.AssignmentGroups;
       }
 
-      let useAssignmentGroupsForWeighting =
-        courseData?.manifest?.useAssignmentGroupsForWeighting || false;
+      let useAssignmentGroupsForWeighting = courseData?.manifest?.useAssignmentGroupsForWeighting || false;
 
       //Assignment details open/closed state management. Default to all closed.
       const [openStates, setOpenStates] = useState(() => {
@@ -1348,7 +1296,7 @@
         return item.type.toLowerCase(); // Return the type in lowercase for consistency
       };
       return (
-        <div className="page-div" style={{ marginBottom: "4em" }}>
+        <div className='page-div' style={{ marginBottom: "4em" }}>
           <div
             style={{
               display: "flex",
@@ -1373,7 +1321,7 @@
             </button>
           </div>
           <div
-            className="grades-sorting"
+            className='grades-sorting'
             style={{
               marginBottom: ".5em",
               marginTop: ".5em",
@@ -1394,18 +1342,18 @@
                   marginRight: "2em",
                 }}
               >
-                <label htmlFor="grading_period">
+                <label htmlFor='grading_period'>
                   <strong>Grading Period</strong>
                 </label>
 
                 <select
-                  name="grading_period"
-                  id="grading_period"
-                  className="dropdown-select"
+                  name='grading_period'
+                  id='grading_period'
+                  className='dropdown-select'
                   onChange={(e) => setSelectedGradingPeriod(e.target.value)}
                   value={selectedGradingPeriod}
                 >
-                  <option value="all">All Grading Periods</option>
+                  <option value='all'>All Grading Periods</option>
                   {gradingPeriods.map((period) => (
                     <option key={period.id} value={period.id}>
                       {period.title || period.display_name}
@@ -1423,19 +1371,14 @@
                 fontSize: "1em",
               }}
             >
-              <label htmlFor="grades-sorting-dropdown">
+              <label htmlFor='grades-sorting-dropdown'>
                 <strong>Arrange By</strong>
               </label>
-              <select
-                id="grades-sorting-dropdown"
-                className="dropdown-select"
-                onChange={(e) => setSortBy(e.target.value)}
-                value={sortBy}
-              >
-                <option value="due">Due Date</option>
-                <option value="name">Name</option>
-                <option value="submitted">Submitted Date</option>
-                <option value="assignment_group">Assignment Group</option>
+              <select id='grades-sorting-dropdown' className='dropdown-select' onChange={(e) => setSortBy(e.target.value)} value={sortBy}>
+                <option value='due'>Due Date</option>
+                <option value='name'>Name</option>
+                <option value='submitted'>Submitted Date</option>
+                <option value='assignment_group'>Assignment Group</option>
               </select>
             </span>
             <span
@@ -1447,22 +1390,14 @@
               }}
             >
               Total:{" "}
-              {calculateTotalWeightedGrade(
-                gradeList,
-                useAssignmentGroupsForWeighting ? assignmentGroups : undefined,
-              )
-                ? calculateTotalWeightedGrade(
-                    gradeList,
-                    useAssignmentGroupsForWeighting
-                      ? assignmentGroups
-                      : undefined,
-                  )?.toFixed(2) + "%"
+              {calculateTotalWeightedGrade(gradeList, useAssignmentGroupsForWeighting ? assignmentGroups : undefined)
+                ? calculateTotalWeightedGrade(gradeList, useAssignmentGroupsForWeighting ? assignmentGroups : undefined)?.toFixed(2) + "%"
                 : "N/A"}
             </span>
           </div>
-          <table className="grades-table">
+          <table className='grades-table'>
             <thead>
-              <tr className="grades-table-header">
+              <tr className='grades-table-header'>
                 <th>Name</th>
                 <th>Due</th>
                 <th>Submitted</th>
@@ -1471,7 +1406,7 @@
                 <th></th>
               </tr>
             </thead>
-            <tbody className="grades-table-body">
+            <tbody className='grades-table-body'>
               {gradeList.map((grade, index) => (
                 <GradeTableRow
                   assignment={grade}
@@ -1484,87 +1419,53 @@
               {assignmentGroups &&
                 assignmentGroups.length > 0 &&
                 assignmentGroups.map((group, index) => (
-                  <tr className="grade-row" key={index}>
-                    <td colSpan="4">
+                  <tr className='grade-row' key={index}>
+                    <td colSpan='4'>
                       <strong>{group.name}</strong>
                     </td>
                     <td style={{ textAlign: "center" }}>
                       <strong>
-                        {calculateGradeForGroup(
-                          group,
-                          gradeList,
-                        )?.percentage?.toFixed(2)
-                          ? calculateGradeForGroup(
-                              group,
-                              gradeList,
-                            )?.percentage?.toFixed(2) + "%"
+                        {calculateGradeForGroup(group, gradeList)?.percentage?.toFixed(2)
+                          ? calculateGradeForGroup(group, gradeList)?.percentage?.toFixed(2) + "%"
                           : "N/A"}
                       </strong>
                     </td>
                     <td style={{ textAlign: "right" }}>
                       <strong style={{ whiteSpace: "nowrap" }}>
-                        {calculateGradeForGroup(
-                          group,
-                          gradeList,
-                        )?.totalPointsEarned?.toFixed(2) || "N/A"}{" "}
-                        /{" "}
-                        {calculateGradeForGroup(
-                          group,
-                          gradeList,
-                        )?.totalPointsPossible?.toFixed(2) || "N/A"}
+                        {calculateGradeForGroup(group, gradeList)?.totalPointsEarned?.toFixed(2) || "N/A"} /{" "}
+                        {calculateGradeForGroup(group, gradeList)?.totalPointsPossible?.toFixed(2) || "N/A"}
                       </strong>
                     </td>
                   </tr>
                 ))}
-              <tr className="grade-row grade-row-total">
-                <td
-                  colSpan="4"
-                  style={{ textAlign: "left", textWrap: "nowrap" }}
-                >
+              <tr className='grade-row grade-row-total'>
+                <td colSpan='4' style={{ textAlign: "left", textWrap: "nowrap" }}>
                   <strong>Total</strong>
                 </td>
                 <td style={{ textAlign: "center" }}>
                   <strong>
-                    {calculateTotalWeightedGrade(
-                      gradeList,
-                      useAssignmentGroupsForWeighting
-                        ? assignmentGroups
-                        : undefined,
-                    )
-                      ? calculateTotalWeightedGrade(
-                          gradeList,
-                          useAssignmentGroupsForWeighting
-                            ? assignmentGroups
-                            : undefined,
-                        )?.toFixed(2) + "%"
+                    {calculateTotalWeightedGrade(gradeList, useAssignmentGroupsForWeighting ? assignmentGroups : undefined)
+                      ? calculateTotalWeightedGrade(gradeList, useAssignmentGroupsForWeighting ? assignmentGroups : undefined)?.toFixed(2) +
+                        "%"
                       : "N/A"}
                   </strong>
                 </td>
                 <td style={{ textAlign: "center" }}>
                   <strong>
-                    {calculateTotalPoints(
-                      gradeList,
-                    )?.totalPointsEarned?.toFixed(2) || "N/A"}{" "}
-                    /{" "}
-                    {calculateTotalPoints(
-                      gradeList,
-                    )?.totalPointsPossible?.toFixed(2) || "N/A"}
+                    {calculateTotalPoints(gradeList)?.totalPointsEarned?.toFixed(2) || "N/A"} /{" "}
+                    {calculateTotalPoints(gradeList)?.totalPointsPossible?.toFixed(2) || "N/A"}
                   </strong>
                 </td>
               </tr>
             </tbody>
           </table>
-          <div className="group-weighting">
-            {!useAssignmentGroupsForWeighting ||
-            !assignmentGroups ||
-            assignmentGroups.length === 0 ? (
-              <p className="no-weighting-text">
-                Course assignments are not weighted.
-              </p>
+          <div className='group-weighting'>
+            {!useAssignmentGroupsForWeighting || !assignmentGroups || assignmentGroups.length === 0 ? (
+              <p className='no-weighting-text'>Course assignments are not weighted.</p>
             ) : (
-              <div className="weighting-container">
-                <h3 className="weighting-title">Course Weighting</h3>
-                <table className="weighting-table">
+              <div className='weighting-container'>
+                <h3 className='weighting-title'>Course Weighting</h3>
+                <table className='weighting-table'>
                   <thead>
                     <tr>
                       <th>Group</th>
@@ -1575,12 +1476,7 @@
                     {assignmentGroups.map((group, index) => (
                       <tr key={group.id || index}>
                         <td>{group.name}</td>
-                        <td>
-                          {group.group_weight !== undefined &&
-                          group.group_weight !== null
-                            ? `${group.group_weight}%`
-                            : "N/A"}
-                        </td>
+                        <td>{group.group_weight !== undefined && group.group_weight !== null ? `${group.group_weight}%` : "N/A"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1597,12 +1493,18 @@
       }
 
       return (
-        <div className="assignment-rubric-container" style={{ marginTop: "1em" }}>
-          <h3 style={{ fontSize: "1.1em", marginBottom: "0.5em", color: "#273540" }}>
+        <div className='assignment-rubric-container' style={{ marginTop: "1em" }}>
+          <h3
+            style={{
+              fontSize: "1.1em",
+              marginBottom: "0.5em",
+              color: "#273540",
+            }}
+          >
             Rubric
           </h3>
           <table
-            className="rubric-table"
+            className='rubric-table'
             style={{
               width: "100%",
               borderCollapse: "collapse",
@@ -1612,28 +1514,65 @@
           >
             <thead>
               <tr style={{ backgroundColor: "#f2f4f4", textAlign: "left" }}>
-                <th style={{ padding: "8px 12px", borderBottom: "1px solid #ccc" }}>Criteria</th>
-                <th style={{ padding: "8px 12px", borderBottom: "1px solid #ccc" }}>Ratings</th>
-                <th style={{ padding: "8px 12px", borderBottom: "1px solid #ccc", textAlign: "right" }}>Pts</th>
+                <th
+                  style={{
+                    padding: "8px 12px",
+                    borderBottom: "1px solid #ccc",
+                  }}
+                >
+                  Criteria
+                </th>
+                <th
+                  style={{
+                    padding: "8px 12px",
+                    borderBottom: "1px solid #ccc",
+                  }}
+                >
+                  Ratings
+                </th>
+                <th
+                  style={{
+                    padding: "8px 12px",
+                    borderBottom: "1px solid #ccc",
+                    textAlign: "right",
+                  }}
+                >
+                  Pts
+                </th>
               </tr>
             </thead>
             <tbody>
               {rubric.map((crit, idx) => (
                 <tr key={crit.id || idx} style={{ borderBottom: "1px solid #e8eaec" }}>
-                  <td style={{ padding: "10px 12px", verticalAlign: "top", width: "30%", borderRight: "1px solid #e8eaec" }}>
-                    <div className="rubric-popover-wrapper">
+                  <td
+                    style={{
+                      padding: "10px 12px",
+                      verticalAlign: "top",
+                      width: "30%",
+                      borderRight: "1px solid #e8eaec",
+                    }}
+                  >
+                    <div className='rubric-popover-wrapper'>
                       <strong>{crit.description}</strong>
                       {crit.long_description && (
                         <div
-                          className="rubric-popover"
-                          dangerouslySetInnerHTML={{ __html: crit.long_description }}
+                          className='rubric-popover'
+                          dangerouslySetInnerHTML={{
+                            __html: crit.long_description,
+                          }}
                         />
                       )}
                     </div>
                     {crit.long_description && (
                       <div
-                        style={{ fontSize: "12px", color: "#596a75", marginTop: "4px" }}
-                        dangerouslySetInnerHTML={{ __html: crit.long_description }}
+                        style={{
+                          fontSize: "12px",
+                          color: "#596a75",
+                          marginTop: "4px",
+                        }}
+                        dangerouslySetInnerHTML={{
+                          __html: crit.long_description,
+                        }}
                       />
                     )}
                   </td>
@@ -1643,19 +1582,16 @@
                         crit.ratings.map((rating, rIdx) => {
                           const popoverText = rating.long_description || rating.description;
                           return (
-                            <div
-                              key={rating.id || rIdx}
-                              className="rubric-rating-card"
-                            >
+                            <div key={rating.id || rIdx} className='rubric-rating-card'>
                               {popoverText && (
                                 <div
-                                  className="rubric-popover"
-                                  dangerouslySetInnerHTML={{ __html: popoverText }}
+                                  className='rubric-popover'
+                                  dangerouslySetInnerHTML={{
+                                    __html: popoverText,
+                                  }}
                                 />
                               )}
-                              <div style={{ fontWeight: "bold", color: "#008148" }}>
-                                {rating.points} pts
-                              </div>
+                              <div style={{ fontWeight: "bold", color: "#008148" }}>{rating.points} pts</div>
                               <div>{rating.description}</div>
                             </div>
                           );
@@ -1680,6 +1616,7 @@
         </div>
       );
     }
+
 
     function AssignmentDetailView({ assignment }) {
       if (!assignment) {
@@ -1706,9 +1643,7 @@
           return (
             <>
               <strong>
-                {assignment?.submission?.score ||
-                  (assignment?.submission?.missing ? "0" : "-")}
-                /{assignment?.points_possible}
+                {assignment?.submission?.score || (assignment?.submission?.missing ? "0" : "-")}/{assignment?.points_possible}
               </strong>
               {" Points"}
             </>
@@ -1718,31 +1653,25 @@
           return <></>;
         }
         if (assignment?.grading_type == "pass_fail") {
-          return (
-            <>
-              {assignment?.submission?.grade == "complete"
-                ? "Complete"
-                : "Incomplete"}
-            </>
-          );
+          return <>{assignment?.submission?.grade == "complete" ? "Complete" : "Incomplete"}</>;
         }
         return <>error</>;
       }
 
       return (
         <div
-          style={{ display: "flex", flexDirection: "column", width: "100%", marginBottom: "8em" }}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            width: "100%",
+            marginBottom: "8em",
+          }}
         >
-          <div className="assignment-student-header">
+          <div className='assignment-student-header'>
             <span style={{ display: "flex", flexDirection: "column" }}>
-              <span className="assignment-student-header-title">
-                {assignment?.name}
-              </span>
+              <span className='assignment-student-header-title'>{assignment?.name}</span>
               <span style={{ fontSize: "14px", fontWeight: "bold" }}>
-                Due:{" "}
-                {assignment?.due_at
-                  ? customDateFormat(assignment?.due_at)
-                  : "Not Set"}
+                Due: {assignment?.due_at ? customDateFormat(assignment?.due_at) : "Not Set"}
               </span>
             </span>
             <span
@@ -1754,13 +1683,8 @@
               }}
             >
               <span>
-                {assignment.submission?.late &&
-                  !assignment.submission?.missing && (
-                    <ContextPill type="late" />
-                  )}
-                {assignment.submission?.missing && (
-                  <ContextPill type="missing" />
-                )}
+                {assignment.submission?.late && !assignment.submission?.missing && <ContextPill type='late' />}
+                {assignment.submission?.missing && <ContextPill type='missing' />}
               </span>
               <span
                 style={{
@@ -1773,7 +1697,7 @@
             </span>
           </div>
           <div
-            className="assignment-information"
+            className='assignment-information'
             style={{
               display: "flex",
               flexDirection: "column",
@@ -1781,15 +1705,11 @@
               padding: "1em",
             }}
           >
-            {typeof assignment?.lock_explanation === "string" && (
-              <span>{assignment.lock_explanation}</span>
-            )}
+            {typeof assignment?.lock_explanation === "string" && <span>{assignment.lock_explanation}</span>}
           </div>
-          <div
-            className="assignment-details"
-            dangerouslySetInnerHTML={{ __html: assignment?.description }}
-          />
+          <div className='assignment-details' dangerouslySetInnerHTML={{ __html: assignment?.description }} />
           <AssignmentRubric rubric={assignment?.rubric} />
+          <CanvasSubmission assignment={assignment} />
           {/*<span>Debug: {assignment?.id}</span>*/}
         </div>
       );
@@ -1807,14 +1727,7 @@
      * @param {boolean} props.isOpen - Whether the table is open.
      * @param {Function} props.onToggle - The function to call when the table is toggled.
      */
-    function CollapseTable({
-      title,
-      children,
-      style,
-      isModuleItem,
-      isOpen: controlledIsOpen,
-      onToggle,
-    }) {
+    function CollapseTable({ title, children, style, isModuleItem, isOpen: controlledIsOpen, onToggle }) {
       // Fallback internal state for standalone usage outside of ModulesPage
       const [internalIsOpen, setInternalIsOpen] = useState(true);
 
@@ -1833,8 +1746,8 @@
       const childList = React.Children.toArray(children);
 
       return (
-        <div className="collapse-table" style={style}>
-          <div className="collapse-table-header" onClick={toggleOpen}>
+        <div className='collapse-table' style={style}>
+          <div className='collapse-table-header' onClick={toggleOpen}>
             <span
               style={{
                 fontSize: "10px",
@@ -1850,17 +1763,15 @@
           </div>
 
           {isOpen && (
-            <div className="collapse-table-content">
+            <div className='collapse-table-content'>
               {childList.length > 0 ? (
-                <ul className="collapse-table-list">
+                <ul className='collapse-table-list'>
                   {childList.map((child, index) => (
                     <li
                       key={child.key || index}
-                      className="collapse-table-item"
+                      className='collapse-table-item'
                       style={{
-                        borderLeft: isModuleItem
-                          ? "4px solid #03893d"
-                          : "1px solid #e8eaec",
+                        borderLeft: isModuleItem ? "4px solid #03893d" : "1px solid #e8eaec",
                       }}
                     >
                       {child}
@@ -1868,7 +1779,7 @@
                   ))}
                 </ul>
               ) : (
-                <div className="collapse-table-empty">No items to display.</div>
+                <div className='collapse-table-empty'>No items to display.</div>
               )}
             </div>
           )}
@@ -1890,44 +1801,44 @@
           case "assignment":
             return (
               <path
-                d="M1468.214 0v564.698h-112.94V112.94H112.94v1694.092h1242.334v-225.879h112.94v338.819H0V0h1468.214Zm129.428 581.311c22.137-22.136 57.825-22.136 79.962 0l225.879 225.879c22.023 22.023 22.023 57.712 0 79.848l-677.638 677.637c-10.616 10.504-24.96 16.49-39.98 16.49h-225.88c-31.17 0-56.469-25.299-56.469-56.47v-225.88c0-15.02 5.986-29.364 16.49-39.867Zm-155.291 314.988-425.895 425.895v146.031h146.03l425.895-425.895-146.03-146.03Zm-764.714 346.047v112.94H338.82v-112.94h338.818Zm225.88-225.88v112.94H338.818v-112.94h564.697Zm734.106-315.44-115.424 115.425 146.03 146.03 115.425-115.423-146.031-146.031ZM1129.395 338.83v451.758H338.82V338.83h790.576Zm-112.94 112.94H451.759v225.878h564.698V451.77Z"
-                fillRule="evenodd"
+                d='M1468.214 0v564.698h-112.94V112.94H112.94v1694.092h1242.334v-225.879h112.94v338.819H0V0h1468.214Zm129.428 581.311c22.137-22.136 57.825-22.136 79.962 0l225.879 225.879c22.023 22.023 22.023 57.712 0 79.848l-677.638 677.637c-10.616 10.504-24.96 16.49-39.98 16.49h-225.88c-31.17 0-56.469-25.299-56.469-56.47v-225.88c0-15.02 5.986-29.364 16.49-39.867Zm-155.291 314.988-425.895 425.895v146.031h146.03l425.895-425.895-146.03-146.03Zm-764.714 346.047v112.94H338.82v-112.94h338.818Zm225.88-225.88v112.94H338.818v-112.94h564.697Zm734.106-315.44-115.424 115.425 146.03 146.03 115.425-115.423-146.031-146.031ZM1129.395 338.83v451.758H338.82V338.83h790.576Zm-112.94 112.94H451.759v225.878h564.698V451.77Z'
+                fillRule='evenodd'
               />
             );
           case "file": // "paperclip" is the icon for files in Canvas
             return (
               <path
-                d="M1752.768 221.109C1532.646.986 1174.283.986 954.161 221.109l-838.588 838.588c-154.052 154.165-154.052 404.894 0 558.946 149.534 149.421 409.976 149.308 559.059 0l758.738-758.626c87.982-88.094 87.982-231.417 0-319.51-88.32-88.208-231.642-87.982-319.51 0l-638.796 638.908 79.85 79.849 638.795-638.908c43.934-43.821 115.539-43.934 159.812 0 43.934 44.047 43.934 115.877 0 159.812l-758.739 758.625c-110.23 110.118-289.355 110.005-399.36 0-110.118-110.117-110.005-289.242 0-399.247l838.588-838.588c175.963-175.962 462.382-176.188 638.909 0 176.075 176.188 176.075 462.833 0 638.908l-798.607 798.72 79.849 79.85 798.607-798.72c220.01-220.123 220.01-578.485 0-798.607"
-                fillRule="evenodd"
+                d='M1752.768 221.109C1532.646.986 1174.283.986 954.161 221.109l-838.588 838.588c-154.052 154.165-154.052 404.894 0 558.946 149.534 149.421 409.976 149.308 559.059 0l758.738-758.626c87.982-88.094 87.982-231.417 0-319.51-88.32-88.208-231.642-87.982-319.51 0l-638.796 638.908 79.85 79.849 638.795-638.908c43.934-43.821 115.539-43.934 159.812 0 43.934 44.047 43.934 115.877 0 159.812l-758.739 758.625c-110.23 110.118-289.355 110.005-399.36 0-110.118-110.117-110.005-289.242 0-399.247l838.588-838.588c175.963-175.962 462.382-176.188 638.909 0 176.075 176.188 176.075 462.833 0 638.908l-798.607 798.72 79.849 79.85 798.607-798.72c220.01-220.123 220.01-578.485 0-798.607'
+                fillRule='evenodd'
               />
             );
           case "discussion":
             return (
               <path
-                d="M677.647 16v338.936h112.941V129.054h1016.47V919.53h-225.994v259.765L1321.412 919.53h-79.172V467.878H0v1016.47h338.71v418.9l417.996-418.9h485.534v-451.877h32.753l419.125 419.124v-419.124H1920V16H677.647ZM338.79 919.563h564.706v-112.94H338.79v112.94Zm0 225.883h338.936v-113.054H338.79v113.054Zm-225.85-564.74h1016.47v790.701H710.4L451.652 1631.06v-259.652h-338.71V580.706Z"
-                fillRule="evenodd"
+                d='M677.647 16v338.936h112.941V129.054h1016.47V919.53h-225.994v259.765L1321.412 919.53h-79.172V467.878H0v1016.47h338.71v418.9l417.996-418.9h485.534v-451.877h32.753l419.125 419.124v-419.124H1920V16H677.647ZM338.79 919.563h564.706v-112.94H338.79v112.94Zm0 225.883h338.936v-113.054H338.79v113.054Zm-225.85-564.74h1016.47v790.701H710.4L451.652 1631.06v-259.652h-338.71V580.706Z'
+                fillRule='evenodd'
               />
             );
           case "externaltool": // "externaltool" is the icon for external tools in Canvas
           case "externalurl": // "link" is the icon for external links in Canvas
             return (
               <path
-                d="M1866.003 351.563 1565.128 50.575c-69.46-67.652-180.932-67.426-248.923.565L906.23 461.116c-68.33 68.443-68.33 179.69.113 248.132l31.623 31.624 79.737-79.963-31.624-31.51c-24.282-24.396-24.282-64.038 0-88.433l409.977-409.977c24.508-24.395 64.828-24.17 89.675 0l299.859 299.972c24.734 25.186 24.847 65.619.564 90.014l-409.976 409.977c-24.508 24.282-64.15 24.282-88.546 0l-110.795-110.909 159.473-159.36-79.85-79.85-435.614 435.502-109.779-109.779c-32.866-33.656-76.8-52.292-123.67-52.63-43.596 1.694-92.273 18.296-126.156 52.178L51.377 1316.081c-68.442 68.442-68.442 179.69 0 248.132l301.553 301.553c34.108 34.108 79.059 51.275 124.01 51.275 44.95 0 89.9-17.167 124.122-51.275l409.976-409.977c33.77-33.882 52.405-78.607 52.066-126.042-.226-46.984-18.974-90.918-52.066-123.219l-30.494-30.494-79.85 79.85 30.946 30.945c11.86 11.633 18.41 27.106 18.523 43.595.113 16.942-6.664 33.092-18.974 45.516l-409.977 409.976c-23.492 23.492-64.94 23.492-88.433 0l-301.553-301.553c-11.746-11.746-18.183-27.444-18.183-44.273 0-16.715 6.437-32.414 18.183-44.16l409.977-409.976c12.197-12.31 28.235-19.087 45.063-19.087h.452c16.49.113 31.962 6.663 43.934 19.087l110.344 110.23-162.184 162.297 79.85 79.85 438.324-438.438 110.796 110.908c34.334 34.221 79.171 51.275 124.122 51.275 44.95 0 89.901-17.054 124.122-51.275l409.977-409.977c67.877-67.99 67.99-179.463 0-249.26"
-                fillRule="evenodd"
+                d='M1866.003 351.563 1565.128 50.575c-69.46-67.652-180.932-67.426-248.923.565L906.23 461.116c-68.33 68.443-68.33 179.69.113 248.132l31.623 31.624 79.737-79.963-31.624-31.51c-24.282-24.396-24.282-64.038 0-88.433l409.977-409.977c24.508-24.395 64.828-24.17 89.675 0l299.859 299.972c24.734 25.186 24.847 65.619.564 90.014l-409.976 409.977c-24.508 24.282-64.15 24.282-88.546 0l-110.795-110.909 159.473-159.36-79.85-79.85-435.614 435.502-109.779-109.779c-32.866-33.656-76.8-52.292-123.67-52.63-43.596 1.694-92.273 18.296-126.156 52.178L51.377 1316.081c-68.442 68.442-68.442 179.69 0 248.132l301.553 301.553c34.108 34.108 79.059 51.275 124.01 51.275 44.95 0 89.9-17.167 124.122-51.275l409.976-409.977c33.77-33.882 52.405-78.607 52.066-126.042-.226-46.984-18.974-90.918-52.066-123.219l-30.494-30.494-79.85 79.85 30.946 30.945c11.86 11.633 18.41 27.106 18.523 43.595.113 16.942-6.664 33.092-18.974 45.516l-409.977 409.976c-23.492 23.492-64.94 23.492-88.433 0l-301.553-301.553c-11.746-11.746-18.183-27.444-18.183-44.273 0-16.715 6.437-32.414 18.183-44.16l409.977-409.976c12.197-12.31 28.235-19.087 45.063-19.087h.452c16.49.113 31.962 6.663 43.934 19.087l110.344 110.23-162.184 162.297 79.85 79.85 438.324-438.438 110.796 110.908c34.334 34.221 79.171 51.275 124.122 51.275 44.95 0 89.901-17.054 124.122-51.275l409.977-409.977c67.877-67.99 67.99-179.463 0-249.26'
+                fillRule='evenodd'
               />
             );
           case "page": // "document" is the icon for pages in Canvas
             return (
               <path
-                d="M1706.235 1807.059H350.941V112.94h903.53v451.765h451.764v1242.353Zm-338.823-1670.74 315.443 315.447h-315.443V136.32Zm402.182 242.487L1440.372 49.58C1408.296 17.62 1365.717 0 1320.542 0H238v1920h1581.175V498.635c0-45.176-17.618-87.755-49.58-119.83ZM576.823 1242.353h790.589v-112.94H576.823v112.94Zm0-451.765h903.53V677.647h-903.53v112.941Zm0 677.647h451.765v-112.941H576.823v112.941Zm0-451.764h677.648V903.53H576.823v112.941Zm0-451.765h451.765V451.765H576.823v112.941Z"
-                fillRule="evenodd"
+                d='M1706.235 1807.059H350.941V112.94h903.53v451.765h451.764v1242.353Zm-338.823-1670.74 315.443 315.447h-315.443V136.32Zm402.182 242.487L1440.372 49.58C1408.296 17.62 1365.717 0 1320.542 0H238v1920h1581.175V498.635c0-45.176-17.618-87.755-49.58-119.83ZM576.823 1242.353h790.589v-112.94H576.823v112.94Zm0-451.765h903.53V677.647h-903.53v112.941Zm0 677.647h451.765v-112.941H576.823v112.941Zm0-451.764h677.648V903.53H576.823v112.941Zm0-451.765h451.765V451.765H576.823v112.941Z'
+                fillRule='evenodd'
               />
             );
           case "quiz": // externaltool
             return (
-              <g fillRule="evenodd">
-                <path d="m746.255 1466.764 80.484 80.712-248.748 248.634-80.484-80.598 248.748-248.748Zm-165.904-165.836 80.598 80.598-331.626 331.626-80.598-80.598 331.626-331.626Zm-165.847-165.721 80.598 80.598-414.504 414.504L0 1549.71l414.504-414.504ZM1119.32 264.6c356.478-356.478 725.268-178.296 729.03-176.472l17.1 8.436 8.436 17.1c1.824 3.648 180.006 372.438-176.586 729.03l-146.604 146.604-2.622 665.874-222.642 222.642-331.626-331.512-578.094-578.094-331.626-331.74 222.642-222.642 665.874-2.508Zm316.92 839.154-361.836 361.95 251.028 250.914 108.87-108.87 1.938-503.994Zm343.026-921.348c-69.084-25.992-321.366-95.304-579.348 162.792l-623.01 623.01 416.898 416.898 622.896-623.01c256.956-256.956 187.986-511.176 162.564-579.69Zm-921.12 343.368-503.994 1.824-108.87 108.87L496.31 887.61l361.836-361.836Z" />
-                <path d="M1534.987 372.558c-51.072-1.368-131.67 12.768-213.294 94.392l-40.47 40.356 173.394 173.28 40.356-40.242c82.194-82.308 96.9-161.31 94.848-213.18l-2.166-52.554-52.668-2.052Z" />
+              <g fillRule='evenodd'>
+                <path d='m746.255 1466.764 80.484 80.712-248.748 248.634-80.484-80.598 248.748-248.748Zm-165.904-165.836 80.598 80.598-331.626 331.626-80.598-80.598 331.626-331.626Zm-165.847-165.721 80.598 80.598-414.504 414.504L0 1549.71l414.504-414.504ZM1119.32 264.6c356.478-356.478 725.268-178.296 729.03-176.472l17.1 8.436 8.436 17.1c1.824 3.648 180.006 372.438-176.586 729.03l-146.604 146.604-2.622 665.874-222.642 222.642-331.626-331.512-578.094-578.094-331.626-331.74 222.642-222.642 665.874-2.508Zm316.92 839.154-361.836 361.95 251.028 250.914 108.87-108.87 1.938-503.994Zm343.026-921.348c-69.084-25.992-321.366-95.304-579.348 162.792l-623.01 623.01 416.898 416.898 622.896-623.01c256.956-256.956 187.986-511.176 162.564-579.69Zm-921.12 343.368-503.994 1.824-108.87 108.87L496.31 887.61l361.836-361.836Z' />
+                <path d='M1534.987 372.558c-51.072-1.368-131.67 12.768-213.294 94.392l-40.47 40.356 173.394 173.28 40.356-40.242c82.194-82.308 96.9-161.31 94.848-213.18l-2.166-52.554-52.668-2.052Z' />
               </g>
             );
           case "subheader": // There is no icon for subheaders in Canvas, so we return an empty fragment, allowing css to display: none the parent's parent div.
@@ -1935,20 +1846,20 @@
           default:
             return (
               <path
-                d="M1468.214 0v564.698h-112.94V112.94H112.94v1694.092h1242.334v-225.879h112.94v338.819H0V0h1468.214Zm129.428 581.311c22.137-22.136 57.825-22.136 79.962 0l225.879 225.879c22.023 22.023 22.023 57.712 0 79.848l-677.638 677.637c-10.616 10.504-24.96 16.49-39.98 16.49h-225.88c-31.17 0-56.469-25.299-56.469-56.47v-225.88c0-15.02 5.986-29.364 16.49-39.867Zm-155.291 314.988-425.895 425.895v146.031h146.03l425.895-425.895-146.03-146.03Zm-764.714 346.047v112.94H338.82v-112.94h338.818Zm225.88-225.88v112.94H338.818v-112.94h564.697Zm734.106-315.44-115.424 115.425 146.03 146.03 115.425-115.423-146.031-146.031ZM1129.395 338.83v451.758H338.82V338.83h790.576Zm-112.94 112.94H451.759v225.878h564.698V451.77Z"
-                fillRule="evenodd"
+                d='M1468.214 0v564.698h-112.94V112.94H112.94v1694.092h1242.334v-225.879h112.94v338.819H0V0h1468.214Zm129.428 581.311c22.137-22.136 57.825-22.136 79.962 0l225.879 225.879c22.023 22.023 22.023 57.712 0 79.848l-677.638 677.637c-10.616 10.504-24.96 16.49-39.98 16.49h-225.88c-31.17 0-56.469-25.299-56.469-56.47v-225.88c0-15.02 5.986-29.364 16.49-39.867Zm-155.291 314.988-425.895 425.895v146.031h146.03l425.895-425.895-146.03-146.03Zm-764.714 346.047v112.94H338.82v-112.94h338.818Zm225.88-225.88v112.94H338.818v-112.94h564.697Zm734.106-315.44-115.424 115.425 146.03 146.03 115.425-115.423-146.031-146.031ZM1129.395 338.83v451.758H338.82V338.83h790.576Zm-112.94 112.94H451.759v225.878h564.698V451.77Z'
+                fillRule='evenodd'
               />
             );
         }
       }
 
       return (
-        <div className="canvas-item-icon">
+        <div className='canvas-item-icon'>
           <svg
-            width="16"
-            height="16"
-            viewBox="0 0 1920 1920"
-            xmlns="http://www.w3.org/2000/svg"
+            width='16'
+            height='16'
+            viewBox='0 0 1920 1920'
+            xmlns='http://www.w3.org/2000/svg'
             style={{ fill: isModuleItem ? "#03893d" : "#47535c" }}
           >
             {getPathData(icon_type)}
@@ -1956,33 +1867,20 @@
         </div>
       );
     }
-    function CollapseListItemDetails({
-      title,
-      closed,
-      dueDate,
-      grade,
-      maxGrade,
-      assignment,
-      isModuleItem,
-      type,
-      indent,
-    }) {
+    function CollapseListItemDetails({ title, closed, dueDate, grade, maxGrade, assignment, isModuleItem, type, indent }) {
       const { navigateToAssignment } = useNavigation();
       return (
         <div
-          className="assignment-details"
+          className='assignment-details'
           style={{
             display: "flex",
             alignItems: "center",
             paddingLeft: `${indent * 1}em`,
           }}
         >
-          <CanvasItemIcon
-            icon_type={type?.toLowerCase()}
-            isModuleItem={isModuleItem}
-          />
+          <CanvasItemIcon icon_type={type?.toLowerCase()} isModuleItem={isModuleItem} />
           <div
-            className="assignment-info"
+            className='assignment-info'
             style={{
               display: "flex",
               flexDirection: "column",
@@ -1990,65 +1888,45 @@
             }}
           >
             <h3
-              className="assignment-info-title"
+              className='assignment-info-title'
               style={{ fontSize: "16px", margin: "0", color: "#273450" }}
               onClick={() => navigateToAssignment(assignment?.id)}
             >
               {title}
             </h3>
-            <div
-              style={{ display: assignment != undefined ? "inherit" : "none" }}
-            >
-              <span className="assignment-info-item">
+            <div style={{ display: assignment != undefined ? "inherit" : "none" }}>
+              <span className='assignment-info-item'>
                 <strong>{closed ? "Closed" : "Open"}</strong>
               </span>
-              <span className="assignment-info-item">
+              <span className='assignment-info-item'>
                 <strong>Due</strong> {dueDate}
               </span>
-              {!assignment?.submission_types?.includes("none") &&
-                assignment?.grading_type == "points" &&
-                grade &&
-                maxGrade && (
-                  <span className="assignment-info-item">
-                    <strong>{grade}</strong>/{maxGrade} pts
-                  </span>
-                )}
+              {!assignment?.submission_types?.includes("none") && assignment?.grading_type == "points" && grade && maxGrade && (
+                <span className='assignment-info-item'>
+                  <strong>{grade}</strong>/{maxGrade} pts
+                </span>
+              )}
             </div>
           </div>
         </div>
       );
     }
 
-    function GradeTableRow({
-      assignment,
-      detailsHidden,
-      hideDetailCallback,
-      assignmentGroups,
-    }) {
+    function GradeTableRow({ assignment, detailsHidden, hideDetailCallback, assignmentGroups }) {
       let assignmentGroupName = "Unknown Assignment Group";
       if (assignmentGroups && assignmentGroups.length > 0) {
         // takes a list of assignment groups and finds the name of the group that matches the assignment's group ID
         assignmentGroupName =
-          assignmentGroups.filter(
-            (group) => group.id === assignment.assignment_group_id,
-          )[0]?.name || "Unknown Assignment Group";
+          assignmentGroups.filter((group) => group.id === assignment.assignment_group_id)[0]?.name || "Unknown Assignment Group";
       }
       let checkmark = (
-        <svg
-          viewBox="0 0 1920 1920"
-          xmlns="http://www.w3.org/2000/svg"
-          style={{ height: "16px", width: "16px" }}
-        >
-          <path d="M1827.701 303.065 698.835 1431.801 92.299 825.266 0 917.564 698.835 1616.4 1919.869 395.234z" />
+        <svg viewBox='0 0 1920 1920' xmlns='http://www.w3.org/2000/svg' style={{ height: "16px", width: "16px" }}>
+          <path d='M1827.701 303.065 698.835 1431.801 92.299 825.266 0 917.564 698.835 1616.4 1919.869 395.234z' />
         </svg>
       );
       let xmark = (
-        <svg
-          viewBox="0 0 1920 1920"
-          xmlns="http://www.w3.org/2000/svg"
-          style={{ height: "16px", width: "16px" }}
-        >
-          <path d="M954.64 826.418 426.667 298.445 298.445 426.667 826.418 954.64l-527.973 527.973 128.222 128.222 527.973-527.973 527.973 527.973 128.222-128.222-527.973-527.973 527.973-527.973-128.222-128.222z" />
+        <svg viewBox='0 0 1920 1920' xmlns='http://www.w3.org/2000/svg' style={{ height: "16px", width: "16px" }}>
+          <path d='M954.64 826.418 426.667 298.445 298.445 426.667 826.418 954.64l-527.973 527.973 128.222 128.222 527.973-527.973 527.973 527.973 128.222-128.222-527.973-527.973 527.973-527.973-128.222-128.222z' />
         </svg>
       );
       const renderGrade = (assignment) => {
@@ -2074,35 +1952,28 @@
 
       return (
         <>
-          <tr className="grade-row" key={assignment.id}>
+          <tr className='grade-row' key={assignment.id}>
             <td style={{ maxWidth: "30%" }}>
-              <a href="#implement" className="assignment-link">
+              <a href='#implement' className='assignment-link'>
                 {assignment.name}
               </a>
-              <div style={{ fontSize: "14px", color: "rgb(39, 53, 64)" }}>
-                {assignmentGroupName}
-              </div>
+              <div style={{ fontSize: "14px", color: "rgb(39, 53, 64)" }}>{assignmentGroupName}</div>
             </td>
             <td>{assignment.due_at ? fixDateFormat(assignment.due_at) : ""}</td>
             <td style={{ textAlign: "left" }}>
-              {assignment.submission?.submitted_at
-                ? fixDateFormat(assignment.submission?.submitted_at)
-                : ""}
+              {assignment.submission?.submitted_at ? fixDateFormat(assignment.submission?.submitted_at) : ""}
             </td>
             <td style={{ textAlign: "center" }}>
-              {assignment.submission?.late &&
-                !assignment.submission?.missing && <ContextPill type="late" />}
-              {assignment.submission?.missing && <ContextPill type="missing" />}
+              {assignment.submission?.late && !assignment.submission?.missing && <ContextPill type='late' />}
+              {assignment.submission?.missing && <ContextPill type='missing' />}
             </td>
-            <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-              {renderGrade(assignment)}
-            </td>
+            <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>{renderGrade(assignment)}</td>
             <td>
               {/*Add details button, count twoards final grade, and (comments)?*/}
               {!assignment?.score_statistics ? null : (
                 <svg
-                  viewBox="0 0 1920 1920"
-                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox='0 0 1920 1920'
+                  xmlns='http://www.w3.org/2000/svg'
                   style={{
                     width: "16px",
                     height: "16px",
@@ -2119,15 +1990,15 @@
                   onClick={hideDetailCallback}
                 >
                   <path
-                    d="M1709.289 959.673v854.604H341.808v-797.744h113.947v683.797H1595.34V959.673h113.948ZM1840.35 434.57l79.65 81.586-797.63 779.627-364.518-356.54 79.649-81.36 284.868 278.488 717.982-701.801ZM455.789 105v341.956h341.956v113.947H455.789v341.728H341.842V560.903H0V446.956h341.842V105h113.947Zm1082.533 341.876v113.947h-626.71V446.876h626.71Z"
-                    fill-rule="evenodd"
+                    d='M1709.289 959.673v854.604H341.808v-797.744h113.947v683.797H1595.34V959.673h113.948ZM1840.35 434.57l79.65 81.586-797.63 779.627-364.518-356.54 79.649-81.36 284.868 278.488 717.982-701.801ZM455.789 105v341.956h341.956v113.947H455.789v341.728H341.842V560.903H0V446.956h341.842V105h113.947Zm1082.533 341.876v113.947h-626.71V446.876h626.71Z'
+                    fill-rule='evenodd'
                   />
                 </svg>
               )}
               {!assignment?.omit_from_final_grade ? null : (
                 <svg
-                  viewBox="0 0 1920 1920"
-                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox='0 0 1920 1920'
+                  xmlns='http://www.w3.org/2000/svg'
                   style={{
                     width: "16px",
                     height: "16px",
@@ -2144,8 +2015,8 @@
                   onClick={hideDetailCallback}
                 >
                   <path
-                    d="M960 0c530.193 0 960 429.807 960 960s-429.807 960-960 960S0 1490.193 0 960 429.807 0 960 0Zm0 101.053c-474.384 0-858.947 384.563-858.947 858.947S485.616 1818.947 960 1818.947 1818.947 1434.384 1818.947 960 1434.384 101.053 960 101.053Zm-9.32 1221.49c-80.024 0-145.128 65.105-145.128 145.129 0 80.024 65.104 145.128 145.128 145.128 80.024 0 145.128-65.104 145.128-145.128 0-80.024-65.104-145.128-145.128-145.128Zm192.785-968.859h-385.57l93.901 851.327h197.768l93.901-851.327Z"
-                    fill-rule="evenodd"
+                    d='M960 0c530.193 0 960 429.807 960 960s-429.807 960-960 960S0 1490.193 0 960 429.807 0 960 0Zm0 101.053c-474.384 0-858.947 384.563-858.947 858.947S485.616 1818.947 960 1818.947 1818.947 1434.384 1818.947 960 1434.384 101.053 960 101.053Zm-9.32 1221.49c-80.024 0-145.128 65.105-145.128 145.129 0 80.024 65.104 145.128 145.128 145.128 80.024 0 145.128-65.104 145.128-145.128 0-80.024-65.104-145.128-145.128-145.128Zm192.785-968.859h-385.57l93.901 851.327h197.768l93.901-851.327Z'
+                    fill-rule='evenodd'
                   />
                 </svg>
               )}
@@ -2153,31 +2024,23 @@
           </tr>
           <tr
             style={{
-              display:
-                detailsHidden || !assignment?.omit_from_final_grade
-                  ? "none"
-                  : "table-row",
+              display: detailsHidden || !assignment?.omit_from_final_grade ? "none" : "table-row",
             }}
-            className="grade-row-details"
+            className='grade-row-details'
             key={`${assignment.id}-details`}
           >
-            <td colSpan="6" style={{ padding: "0.5em 1em" }}>
-              <strong>
-                This Assignment does not count twoards the final grade.
-              </strong>
+            <td colSpan='6' style={{ padding: "0.5em 1em" }}>
+              <strong>This Assignment does not count twoards the final grade.</strong>
             </td>
           </tr>
           <tr
             style={{
-              display:
-                detailsHidden || !assignment?.score_statistics
-                  ? "none"
-                  : "table-row",
+              display: detailsHidden || !assignment?.score_statistics ? "none" : "table-row",
             }}
-            className="grade-row-details"
+            className='grade-row-details'
             key={`${assignment.id}-details`}
           >
-            <td colSpan="6" style={{ padding: "0.5em 1em" }}>
+            <td colSpan='6' style={{ padding: "0.5em 1em" }}>
               <table
                 style={{
                   maxWidth: "90%",
@@ -2191,37 +2054,27 @@
                       width: "100%",
                     }}
                   >
-                    <th colSpan="3" style={{ textAlign: "left" }}>
+                    <th colSpan='3' style={{ textAlign: "left" }}>
                       Score Details
                     </th>
                     <th style={{ textAlign: "right", paddingRight: "1em" }}>
-                      <a
-                        onClick={hideDetailCallback}
-                        className="assignment-link"
-                        style={{ float: "right", fontWeight: "normal" }}
-                      >
+                      <a onClick={hideDetailCallback} className='assignment-link' style={{ float: "right", fontWeight: "normal" }}>
                         Close
                       </a>
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr
-                    className="grade-row"
-                    style={{ fontSize: "14px", color: "rgb(39, 53, 64)" }}
-                  >
+                  <tr className='grade-row' style={{ fontSize: "14px", color: "rgb(39, 53, 64)" }}>
                     <td>
-                      Mean: {assignment?.score_statistics?.mean || "-"} <br />{" "}
-                      Median: {assignment?.score_statistics?.median || "-"}{" "}
+                      Mean: {assignment?.score_statistics?.mean || "-"} <br /> Median: {assignment?.score_statistics?.median || "-"}{" "}
                     </td>
                     <td>
-                      High: {assignment?.score_statistics?.max || "-"} <br />{" "}
-                      Upper Quartile:{" "}
+                      High: {assignment?.score_statistics?.max || "-"} <br /> Upper Quartile:{" "}
                       {assignment?.score_statistics?.median || "-"}{" "}
                     </td>
                     <td>
-                      Low: {assignment?.score_statistics?.min || "0"} <br />{" "}
-                      Lower Quartile:{" "}
+                      Low: {assignment?.score_statistics?.min || "0"} <br /> Lower Quartile:{" "}
                       {assignment?.score_statistics?.median || "-"}{" "}
                     </td>
                     <td>
@@ -2280,14 +2133,7 @@
 
       const viewBoxValues = "-1 0 160 30";
 
-      const createSvgLine = (
-        className,
-        x1,
-        y1,
-        x2,
-        y2,
-        strokeWidth = strokeWidthDefault,
-      ) => ({
+      const createSvgLine = (className, x1, y1, x2, y2, strokeWidth = strokeWidthDefault) => ({
         className,
         x1,
         y1,
@@ -2297,55 +2143,13 @@
       });
 
       const svgLines = [
-        createSvgLine(
-          "zero",
-          zeroPosition,
-          minSvgHeight,
-          zeroPosition,
-          maxSvgHeight,
-        ),
-        createSvgLine(
-          "possible",
-          `${graph.max_pos}`,
-          minSvgHeight,
-          `${graph.max_pos}`,
-          maxSvgHeight,
-        ),
-        createSvgLine(
-          "min",
-          `${graph.low_pos}`,
-          startSvgHeight,
-          `${graph.low_pos}`,
-          displaySvgHeight,
-        ),
-        createSvgLine(
-          "bottomQ",
-          `${graph.low_pos}`,
-          midSvgHeight,
-          `${graph.lq_pos}`,
-          midSvgHeight,
-        ),
-        createSvgLine(
-          "topQ",
-          `${graph.uq_pos}`,
-          midSvgHeight,
-          `${graph.high_pos}`,
-          midSvgHeight,
-        ),
-        createSvgLine(
-          "max",
-          `${graph.high_pos}`,
-          startSvgHeight,
-          `${graph.high_pos}`,
-          displaySvgHeight,
-        ),
-        createSvgLine(
-          "median",
-          `${graph.median_pos}`,
-          minSvgHeight,
-          `${graph.median_pos}`,
-          maxSvgHeight,
-        ),
+        createSvgLine("zero", zeroPosition, minSvgHeight, zeroPosition, maxSvgHeight),
+        createSvgLine("possible", `${graph.max_pos}`, minSvgHeight, `${graph.max_pos}`, maxSvgHeight),
+        createSvgLine("min", `${graph.low_pos}`, startSvgHeight, `${graph.low_pos}`, displaySvgHeight),
+        createSvgLine("bottomQ", `${graph.low_pos}`, midSvgHeight, `${graph.lq_pos}`, midSvgHeight),
+        createSvgLine("topQ", `${graph.uq_pos}`, midSvgHeight, `${graph.high_pos}`, midSvgHeight),
+        createSvgLine("max", `${graph.high_pos}`, startSvgHeight, `${graph.high_pos}`, displaySvgHeight),
+        createSvgLine("median", `${graph.median_pos}`, minSvgHeight, `${graph.median_pos}`, maxSvgHeight),
       ];
 
       const mid50Rect = {
@@ -2372,7 +2176,7 @@
       return (
         <svg
           viewBox={viewBoxValues}
-          xmlns="http://www.w3.org/2000/svg"
+          xmlns='http://www.w3.org/2000/svg'
           style={{
             cursor: "pointer",
             float: "right",
@@ -2380,18 +2184,14 @@
             width: "161px",
             position: "relative",
           }}
-          aria-hidden="true"
-          data-testid="scoreDistributionGraph"
+          aria-hidden='true'
+          data-testid='scoreDistributionGraph'
         >
           <title>{graph.title}</title>
 
           {/* Boxplot Whiskers & Boundary Lines */}
           {svgLines.map((lineInstructions) => (
-            <line
-              key={lineInstructions.className}
-              {...lineInstructions}
-              stroke={GRAY_COLOR}
-            />
+            <line key={lineInstructions.className} {...lineInstructions} stroke={GRAY_COLOR} />
           ))}
 
           {/* Middle 50% Box (IQR) */}
@@ -2399,7 +2199,7 @@
 
           {/* Student Score Square Marker */}
           {userScore !== undefined && userScore !== null && (
-            <rect className="myScore" {...myScoreRect} stroke={BLUE_COLOR}>
+            <rect className='myScore' {...myScoreRect} stroke={BLUE_COLOR}>
               <title>{`Your Score: ${userScore} out of ${pointsPossible}`}</title>
             </rect>
           )}
@@ -2419,18 +2219,8 @@
         textTransform: "lowercase",
         borderRadius: "999rem",
       };
-      let borderColor =
-        type === "missing"
-          ? "rgb(230, 36, 41)"
-          : type === "late"
-            ? "rgb(43, 122, 188)"
-            : "#e2e3e5";
-      let textColor =
-        type === "missing"
-          ? "rgb(230, 36, 41)"
-          : type === "late"
-            ? "rgb(43, 122, 188)"
-            : "#383d41";
+      let borderColor = type === "missing" ? "rgb(230, 36, 41)" : type === "late" ? "rgb(43, 122, 188)" : "#e2e3e5";
+      let textColor = type === "missing" ? "rgb(230, 36, 41)" : type === "late" ? "rgb(43, 122, 188)" : "#383d41";
 
       return (
         <span
@@ -2448,49 +2238,28 @@
     function calculateGradeForGroup(group, assignments) {
       const groupAssignments = assignments.filter(
         (assignment) =>
-          assignment.assignment_group_id === group.id &&
-          assignment.submission?.grade != null &&
-          !assignment.omit_from_final_grade,
+          assignment.assignment_group_id === group.id && assignment.submission?.grade != null && !assignment.omit_from_final_grade,
       );
 
-      const totalPointsPossible = groupAssignments.reduce(
-        (sum, assignment) => sum + (assignment.points_possible || 0),
-        0,
-      );
+      const totalPointsPossible = groupAssignments.reduce((sum, assignment) => sum + (assignment.points_possible || 0), 0);
 
-      const totalPointsEarned = groupAssignments.reduce(
-        (sum, assignment) => sum + (assignment.submission?.score || 0),
-        0,
-      );
+      const totalPointsEarned = groupAssignments.reduce((sum, assignment) => sum + (assignment.submission?.score || 0), 0);
 
       return {
         totalPointsPossible,
         totalPointsEarned,
-        percentage:
-          totalPointsPossible > 0
-            ? (totalPointsEarned / totalPointsPossible) * 100
-            : null,
+        percentage: totalPointsPossible > 0 ? (totalPointsEarned / totalPointsPossible) * 100 : null,
       };
     }
     function calculateTotalWeightedGrade(assignments, assignmentGroups) {
       if (!assignmentGroups || assignmentGroups.length === 0) {
         // calculate the total grade without weighting if no assignment groups are provided
         const gradedAssignments = assignments.filter(
-          (assignment) =>
-            assignment.submission?.grade != null &&
-            !assignment.omit_from_final_grade,
+          (assignment) => assignment.submission?.grade != null && !assignment.omit_from_final_grade,
         );
-        const totalPointsPossible = gradedAssignments.reduce(
-          (sum, assignment) => sum + (assignment.points_possible || 0),
-          0,
-        );
-        const totalPointsEarned = gradedAssignments.reduce(
-          (sum, assignment) => sum + (assignment.submission?.score || 0),
-          0,
-        );
-        return totalPointsPossible > 0
-          ? (totalPointsEarned / totalPointsPossible) * 100
-          : null;
+        const totalPointsPossible = gradedAssignments.reduce((sum, assignment) => sum + (assignment.points_possible || 0), 0);
+        const totalPointsEarned = gradedAssignments.reduce((sum, assignment) => sum + (assignment.submission?.score || 0), 0);
+        return totalPointsPossible > 0 ? (totalPointsEarned / totalPointsPossible) * 100 : null;
       }
 
       let totalWeightedScore = 0;
@@ -2500,8 +2269,7 @@
         const groupGrade = calculateGradeForGroup(group, assignments);
 
         if (groupGrade.percentage !== null) {
-          totalWeightedScore +=
-            groupGrade.percentage * (group.group_weight / 100);
+          totalWeightedScore += groupGrade.percentage * (group.group_weight / 100);
           totalWeight += group.group_weight;
         }
       });
@@ -2515,18 +2283,10 @@
      */
     function calculateTotalPoints(assignments) {
       const gradedAssignments = assignments.filter(
-        (assignment) =>
-          assignment.submission?.grade != null &&
-          !assignment.omit_from_final_grade,
+        (assignment) => assignment.submission?.grade != null && !assignment.omit_from_final_grade,
       );
-      const totalPointsPossible = gradedAssignments.reduce(
-        (sum, assignment) => sum + (assignment.points_possible || 0),
-        0,
-      );
-      const totalPointsEarned = gradedAssignments.reduce(
-        (sum, assignment) => sum + (assignment.submission?.score || 0),
-        0,
-      );
+      const totalPointsPossible = gradedAssignments.reduce((sum, assignment) => sum + (assignment.points_possible || 0), 0);
+      const totalPointsEarned = gradedAssignments.reduce((sum, assignment) => sum + (assignment.submission?.score || 0), 0);
 
       return {
         totalPointsPossible,
