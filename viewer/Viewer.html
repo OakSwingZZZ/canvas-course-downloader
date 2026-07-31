@@ -326,6 +326,7 @@
     }
     .assignment-link:hover {
       text-decoration: underline;
+      cursor: pointer;
     }
     .grade-row-total {
       border-top: 2px solid black;
@@ -467,6 +468,26 @@
       opacity: 1;
       visibility: visible;
       transform: translateX(-50%) translateY(0);
+    }
+    .pages-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .pages-table th,
+    .pages-table td {
+      border-bottom: 1px solid #dcdfe3;
+      padding: 0.5em 1em;
+    }
+    .pages-table th {
+      font-weight: bold;
+      color: #39454e;
+      text-align: left;
+    }
+    .pages-table tbody {
+      font-size: 14px;
+    }
+    .pages-table tr:hover {
+      background-color: #f0f7fe;
     }
   </style>
   <body>
@@ -638,8 +659,8 @@
        */
       const NavigationContext = React.createContext();
       function NavigationProvider({ children }) {
-        const [activeKey, setActiveKey] = useState("assignments");
-        const [selectedAssignmentId, setSelectedAssignmentId] = useState(931292); // FIX: update to null when done developing
+        const [activeKey, setActiveKey] = useState("pages");
+        const [selectedAssignmentId, setSelectedAssignmentId] = useState(null); // FIX: update to null when done developing
         // Navigate to a main section (resets sub-view detail)
         const navigateToSection = (key) => {
           setActiveKey(key);
@@ -884,6 +905,8 @@
           return <GradesPage />;
         case "modules":
           return <ModulesPage />;
+        case "pages":
+          return <PagesPage />;
         case "frontpage":
           return <HomePage />;
         default:
@@ -2500,6 +2523,48 @@
           <AssignmentRubric rubric={assignment?.rubric} />
           {assignment?.submission?.attachments && <CanvasSubmission assignment={assignment} />}
           {/*<span>Debug: {assignment?.id}</span>*/}
+        </div>
+      );
+    }
+    function PagesPage() {
+      const { courseData } = useCourseContext();
+      return (
+        <div style={{ width: "100%", marginBottom: "8em" }}>
+          <h1>Pages</h1>
+          <div className='pages-container' style={{ width: "100%" }}>
+            <table className='pages-table' style={{ width: "100%" }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid rgb(39, 53, 64)" }}>
+                  <th style={{ minWidth: "fit-content", whiteSpace: "nowrap" }}>Title</th>
+                  <th style={{ minWidth: "fit-content", whiteSpace: "nowrap" }}>Creation Date</th>
+                  <th style={{ minWidth: "fit-content", whiteSpace: "nowrap" }}>Updated at</th>
+                </tr>
+              </thead>
+              <tbody>
+                {courseData?.Pages?.map((page, index) => (
+                  <tr key={page.id} style={{ backgroundColor: index % 2 == 0 ? "#f2f4f4" : "white" }}>
+                    <td>
+                      <a
+                        className='assignment-link'
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setCurrentPage(page);
+                        }}
+                      >
+                        {page.title}
+                      </a>
+                    </td>
+                    <td style={{ minWidth: "fit-content", whiteSpace: "nowrap" }}>
+                      {new Date(page.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                    </td>
+                    <td style={{ minWidth: "fit-content", whiteSpace: "nowrap" }}>
+                      {new Date(page.updated_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       );
     }
