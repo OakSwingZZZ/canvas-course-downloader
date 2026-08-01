@@ -2021,20 +2021,44 @@
       );
     }
     // 1. Sub-component to handle asynchronous file loading and memory cleanup
-    function LocalAttachmentViewer({ attachment, assignment }) {
-      const { dirHandle } = useCourseContext();
+    function getMimeClass(fileObj) {
+      if (!fileObj) return "unknown";
+      if (fileObj.mime_class) return fileObj.mime_class;
+      const contentType = (fileObj["content-type"] || fileObj.contentType || "").toLowerCase();
+      const filename = (fileObj.display_name || fileObj.filename || "").toLowerCase();
+
+      if (contentType.startsWith("image/") || /\.(jpg|jpeg|png|gif|svg|webp|bmp|ico)$/.test(filename)) return "image";
+      if (contentType.startsWith("video/") || /\.(mp4|webm|ogg|mov|avi|mkv)$/.test(filename)) return "video";
+      if (contentType === "application/pdf" || filename.endsWith(".pdf")) return "pdf";
+      if (contentType.startsWith("text/") || /\.(txt|md|csv|json|js|py|c|cpp|css|xml)$/.test(filename)) return "text";
+      if (contentType.includes("html") || /\.(html|htm)$/.test(filename)) return "html";
+      if (contentType.includes("word") || contentType.includes("officedocument.wordprocessingml") || /\.(doc|docx)$/.test(filename)) return "doc";
+      if (contentType.includes("powerpoint") || contentType.includes("officedocument.presentationml") || /\.(ppt|pptx)$/.test(filename)) return "ppt";
+      if (contentType.includes("excel") || contentType.includes("officedocument.spreadsheetml") || /\.(xls|xlsx)$/.test(filename)) return "xls";
+      return "unknown";
+    }
+
+    // 1. Sub-component to handle asynchronous file loading and memory cleanup
+    function LocalAttachmentViewer({ attachment, assignment, file, isCourseFile }) {
+      const { dirHandle, courseData } = useCourseContext();
       const [fileUrl, setFileUrl] = useState(null);
       const [fileObject, setFileObject] = useState(null);
       const [error, setError] = useState(null);
       const [isLoading, setIsLoading] = useState(true);
 
-      // Use display_name first because Canvas URL-encodes the 'filename' property
-      const rawFileName = attachment.display_name || attachment.filename;
-      const sanitizedAssignmentName = sanitizeFilename(assignment.name);
+      const targetFile = file || attachment;
+      const rawFileName = targetFile ? (targetFile.display_name || targetFile.filename || "") : "";
+      const sanitizedAssignmentName = assignment ? sanitizeFilename(assignment.name) : "";
       const sanitizedFileName = sanitizeFilename(rawFileName);
 
       // Fetch the file from the File System API and create a readable URL
       useEffect(() => {
+        if (!targetFile) {
+          setError("No file specified.");
+          setIsLoading(false);
+          return;
+        }
+
         if (!dirHandle) {
           setError("No directory access.");
           setIsLoading(false);
@@ -2052,106 +2076,231 @@
               throw new Error("No directory access handle available.");
             }
 
-            // 1. Access the "Submissions" directory
-            const submissionsHandle = await dirHandle.getDirectoryHandle("Submissions");
+            let matchedFileHandle = null;
 
-            // Targets for assignment folder
-            const targetFolderSanitized = sanitizeFilename(assignment.name).toLowerCase().trim();
-            const targetFolderRaw = (assignment.name || "").toLowerCase().trim();
+            if (assignment) {
+              // 1. Access the "Submissions" directory
+              const submissionsHandle = await dirHandle.getDirectoryHandle("Submissions");
 
-            let assignmentHandle = null;
+              // Targets for assignment folder
+              const targetFolderSanitized = sanitizeFilename(assignment.name).toLowerCase().trim();
+              const targetFolderRaw = (assignment.name || "").toLowerCase().trim();
 
-            // 2. FIND ASSIGNMENT FOLDER
-            try {
-              assignmentHandle = await submissionsHandle.getDirectoryHandle(targetFolderSanitized);
-            } catch (err) {
-              // Direct lookup failed; iterate through Submissions to find matching folder
-              for await (const entry of submissionsHandle.values()) {
-                if (entry.kind === "directory") {
-                  const folderName = entry.name.toLowerCase().trim();
-                  const folderSanitized = sanitizeFilename(entry.name).toLowerCase().trim();
+              let assignmentHandle = null;
 
-                  if (
-                    folderName === targetFolderRaw ||
-                    folderName === targetFolderSanitized ||
-                    folderSanitized === targetFolderSanitized ||
-                    folderName.includes(targetFolderSanitized) ||
-                    targetFolderSanitized.includes(folderName)
-                  ) {
-                    assignmentHandle = entry;
+              // 2. FIND ASSIGNMENT FOLDER
+              try {
+                assignmentHandle = await submissionsHandle.getDirectoryHandle(targetFolderSanitized);
+              } catch (err) {
+                for await (const entry of submissionsHandle.values()) {
+                  if (entry.kind === "directory") {
+                    const folderName = entry.name.toLowerCase().trim();
+                    const folderSanitized = sanitizeFilename(entry.name).toLowerCase().trim();
+
+                    if (
+                      folderName === targetFolderRaw ||
+                      folderName === targetFolderSanitized ||
+                      folderSanitized === targetFolderSanitized ||
+                      folderName.includes(targetFolderSanitized) ||
+                      targetFolderSanitized.includes(folderName)
+                    ) {
+                      assignmentHandle = entry;
+                      break;
+                    }
+                  }
+                }
+              }
+
+              if (!assignmentHandle) {
+                throw new Error(`Assignment folder not found for: "${assignment.name}"`);
+              }
+
+              // Prepare target file strings
+              const rawTarget = (targetFile.display_name || targetFile.filename || "").toLowerCase().trim();
+              const sanitizedTarget = sanitizeFilename(rawTarget).toLowerCase().trim();
+              const currentAttemptNumber = assignment?.submission?.attempt;
+
+              const expectedAttemptPrefix = currentAttemptNumber ? `attempt ${currentAttemptNumber} - ` : null;
+              const attemptPrefixRegex = /^attempt\s+\d+\s*-\s*/i;
+
+              // 3. SEARCH FOR ATTACHMENT FILE IN ASSIGNMENT FOLDER
+              for await (const entry of assignmentHandle.values()) {
+                if (entry.kind === "file") {
+                  const diskNameRaw = entry.name.toLowerCase().trim();
+                  const diskNameSanitized = sanitizeFilename(entry.name).toLowerCase().trim();
+
+                  const diskNameUnprefixedRaw = diskNameRaw.replace(attemptPrefixRegex, "").trim();
+                  const diskNameUnprefixedSanitized = sanitizeFilename(diskNameUnprefixedRaw).toLowerCase().trim();
+
+                  const matchesExactAttemptPrefix = expectedAttemptPrefix && diskNameRaw.startsWith(expectedAttemptPrefix);
+
+                  const isMatch =
+                    (matchesExactAttemptPrefix && diskNameUnprefixedSanitized === sanitizedTarget) ||
+                    diskNameRaw === rawTarget ||
+                    diskNameRaw === sanitizedTarget ||
+                    diskNameSanitized === sanitizedTarget ||
+                    diskNameUnprefixedRaw === rawTarget ||
+                    diskNameUnprefixedRaw === sanitizedTarget ||
+                    diskNameUnprefixedSanitized === sanitizedTarget ||
+                    diskNameUnprefixedRaw.replace(/\+/g, " ") === rawTarget ||
+                    (diskNameRaw.includes(sanitizedTarget) && diskNameRaw.endsWith(sanitizedTarget.slice(-5)));
+
+                  if (isMatch) {
+                    matchedFileHandle = entry;
                     break;
                   }
                 }
               }
-            }
 
-            if (!assignmentHandle) {
-              throw new Error(`Assignment folder not found for: "${assignment.name}"`);
-            }
+              if (!matchedFileHandle) {
+                throw new Error(`File "${rawTarget}" not found in folder "${assignmentHandle.name}"`);
+              }
+            } else {
+              // --- COURSE FILE (Files/...) LOOKUP ---
+              const filesHandle = await dirHandle.getDirectoryHandle("Files");
 
-            // Prepare target file strings
-            const rawTarget = (attachment.display_name || attachment.filename || "").toLowerCase().trim();
-            const sanitizedTarget = sanitizeFilename(rawTarget).toLowerCase().trim();
-            const currentAttemptNumber = assignment?.submission?.attempt; // e.g. 1, 2, 3...
+              // Determine subfolder path from folder_id in courseData.Files.folders
+              let folderPathParts = [];
+              if (targetFile.folder_id && courseData?.Files?.folders) {
+                const foldersArray = Array.isArray(courseData.Files.folders)
+                  ? courseData.Files.folders
+                  : Object.values(courseData.Files.folders);
+                const folderMap = new Map(foldersArray.map((f) => [String(f.id), f]));
+                const fileFolder = folderMap.get(String(targetFile.folder_id));
 
-            // Construct expected prefix if attempt number exists (e.g., "attempt 2 - ")
-            const expectedAttemptPrefix = currentAttemptNumber ? `attempt ${currentAttemptNumber} - ` : null;
+                if (fileFolder && fileFolder.full_name) {
+                  let fn = fileFolder.full_name;
+                  if (fn.toLowerCase().startsWith("course files")) {
+                    fn = fn.slice("course files".length);
+                  }
+                  folderPathParts = fn.split("/").map((s) => s.trim()).filter(Boolean);
+                } else if (fileFolder) {
+                  const parts = [];
+                  let curr = fileFolder;
+                  while (curr && curr.parent_folder_id !== null && curr.name !== "course files") {
+                    parts.unshift(curr.name);
+                    curr = folderMap.get(String(curr.parent_folder_id));
+                  }
+                  folderPathParts = parts;
+                }
+              }
 
-            let matchedFileHandle = null;
+              // Traverse into target folder if specified
+              let targetDirHandle = filesHandle;
+              for (const part of folderPathParts) {
+                let nextHandle = null;
+                const partRaw = part.toLowerCase().trim();
+                const partSanitized = sanitizeFilename(part).toLowerCase().trim();
 
-            // Regex to match and strip any "Attempt X - " prefix from disk filenames
-            const attemptPrefixRegex = /^attempt\s+\d+\s*-\s*/i;
+                try {
+                  nextHandle = await targetDirHandle.getDirectoryHandle(part);
+                } catch (e) {
+                  try {
+                    nextHandle = await targetDirHandle.getDirectoryHandle(sanitizeFilename(part));
+                  } catch (e2) {
+                    for await (const entry of targetDirHandle.values()) {
+                      if (entry.kind === "directory") {
+                        const entryRaw = entry.name.toLowerCase().trim();
+                        const entrySanitized = sanitizeFilename(entry.name).toLowerCase().trim();
+                        if (
+                          entryRaw === partRaw ||
+                          entrySanitized === partSanitized ||
+                          entrySanitized === sanitizeFilename(partRaw)
+                        ) {
+                          nextHandle = entry;
+                          break;
+                        }
+                      }
+                    }
+                  }
+                }
 
-            // 3. SEARCH FOR ATTACHMENT FILE
-            for await (const entry of assignmentHandle.values()) {
-              if (entry.kind === "file") {
-                const diskNameRaw = entry.name.toLowerCase().trim();
-                const diskNameSanitized = sanitizeFilename(entry.name).toLowerCase().trim();
-
-                // Strip any "Attempt X - " prefix from the disk filename
-                const diskNameUnprefixedRaw = diskNameRaw.replace(attemptPrefixRegex, "").trim();
-                const diskNameUnprefixedSanitized = sanitizeFilename(diskNameUnprefixedRaw).toLowerCase().trim();
-
-                // Check if disk file starts specifically with expected attempt (e.g., "Attempt 2 - ")
-                const matchesExactAttemptPrefix = expectedAttemptPrefix && diskNameRaw.startsWith(expectedAttemptPrefix);
-
-                // Check match possibilities
-                const isMatch =
-                  // Priority 1: Exact attempt prefix match (e.g. "Attempt 2 - file.docx")
-                  (matchesExactAttemptPrefix && diskNameUnprefixedSanitized === sanitizedTarget) ||
-                  // Priority 2: Direct match (Single attempt without prefix)
-                  diskNameRaw === rawTarget ||
-                  diskNameRaw === sanitizedTarget ||
-                  diskNameSanitized === sanitizedTarget ||
-                  // Priority 3: Any Attempt prefix stripped match (fallback)
-                  diskNameUnprefixedRaw === rawTarget ||
-                  diskNameUnprefixedRaw === sanitizedTarget ||
-                  diskNameUnprefixedSanitized === sanitizedTarget ||
-                  // Priority 4: Handles Canvas '+' space encoding
-                  diskNameUnprefixedRaw.replace(/\+/g, " ") === rawTarget ||
-                  // Priority 5: Fallback substring check
-                  (diskNameRaw.includes(sanitizedTarget) && diskNameRaw.endsWith(sanitizedTarget.slice(-5)));
-
-                if (isMatch) {
-                  matchedFileHandle = entry;
+                if (nextHandle) {
+                  targetDirHandle = nextHandle;
+                } else {
                   break;
                 }
               }
-            }
 
-            if (!matchedFileHandle) {
-              throw new Error(`File "${rawTarget}" not found in folder "${assignmentHandle.name}"`);
+              const rawTarget = (targetFile.display_name || targetFile.filename || "").toLowerCase().trim();
+              const sanitizedTarget = sanitizeFilename(rawTarget).toLowerCase().trim();
+
+              // Search inside targetDirHandle
+              for await (const entry of targetDirHandle.values()) {
+                if (entry.kind === "file") {
+                  const diskNameRaw = entry.name.toLowerCase().trim();
+                  const diskNameSanitized = sanitizeFilename(entry.name).toLowerCase().trim();
+                  if (
+                    diskNameRaw === rawTarget ||
+                    diskNameRaw === sanitizedTarget ||
+                    diskNameSanitized === sanitizedTarget ||
+                    diskNameRaw.replace(/\+/g, " ") === rawTarget ||
+                    diskNameSanitized.replace(/\+/g, " ") === sanitizedTarget
+                  ) {
+                    matchedFileHandle = entry;
+                    break;
+                  }
+                }
+              }
+
+              // Fallback 1: Search top-level Files directory if targetDirHandle was a subfolder
+              if (!matchedFileHandle && targetDirHandle !== filesHandle) {
+                for await (const entry of filesHandle.values()) {
+                  if (entry.kind === "file") {
+                    const diskNameRaw = entry.name.toLowerCase().trim();
+                    const diskNameSanitized = sanitizeFilename(entry.name).toLowerCase().trim();
+                    if (
+                      diskNameRaw === rawTarget ||
+                      diskNameRaw === sanitizedTarget ||
+                      diskNameSanitized === sanitizedTarget ||
+                      diskNameRaw.replace(/\+/g, " ") === rawTarget
+                    ) {
+                      matchedFileHandle = entry;
+                      break;
+                    }
+                  }
+                }
+              }
+
+              // Fallback 2: Recursive search under filesHandle if still not found
+              if (!matchedFileHandle) {
+                async function findRecursive(dir) {
+                  for await (const entry of dir.values()) {
+                    if (entry.kind === "file") {
+                      const diskNameRaw = entry.name.toLowerCase().trim();
+                      const diskNameSanitized = sanitizeFilename(entry.name).toLowerCase().trim();
+                      if (
+                        diskNameRaw === rawTarget ||
+                        diskNameRaw === sanitizedTarget ||
+                        diskNameSanitized === sanitizedTarget ||
+                        diskNameRaw.replace(/\+/g, " ") === rawTarget
+                      ) {
+                        return entry;
+                      }
+                    } else if (entry.kind === "directory") {
+                      const found = await findRecursive(entry);
+                      if (found) return found;
+                    }
+                  }
+                  return null;
+                }
+                matchedFileHandle = await findRecursive(filesHandle);
+              }
+
+              if (!matchedFileHandle) {
+                throw new Error(`File "${rawTarget}" not found in Files directory.`);
+              }
             }
 
             // 4. Retrieve File Object
-            const file = await matchedFileHandle.getFile();
-            setFileObject(file);
+            const loadedFile = await matchedFileHandle.getFile();
+            setFileObject(loadedFile);
 
             // 5. Create Object URL
-            objectUrl = URL.createObjectURL(file);
+            objectUrl = URL.createObjectURL(loadedFile);
             setFileUrl(objectUrl);
           } catch (err) {
-            console.warn(`Could not load local file: "${rawFileName}" in assignment "${assignment?.name}"`, err);
+            console.warn(`Could not load local file: "${rawFileName}"`, err);
             setError(err.message || "File or directory not found locally.");
           } finally {
             setIsLoading(false);
@@ -2166,9 +2315,10 @@
             URL.revokeObjectURL(objectUrl);
           }
         };
-      }, [dirHandle, sanitizedAssignmentName, sanitizedFileName]);
+      }, [dirHandle, courseData, sanitizedAssignmentName, sanitizedFileName, targetFile?.id, targetFile?.folder_id]);
 
-      const formattedSize = (attachment.size / 1024).toFixed(1) + " KB";
+      const mimeClass = getMimeClass(targetFile);
+      const formattedSize = targetFile?.size ? (targetFile.size / 1024).toFixed(1) + " KB" : "-";
 
       if (isLoading) {
         return (
@@ -2204,7 +2354,7 @@
       }
 
       let content;
-      switch (attachment.mime_class) {
+      switch (mimeClass) {
         case "image":
           content = (
             <img
@@ -2272,7 +2422,7 @@
               </svg>
               <p style={{ color: "#374151", fontWeight: "500", margin: "0 0 0.25rem 0" }}>Local Document File</p>
               <p style={{ fontSize: "0.875rem", color: "#6b7280", margin: "0 0 1rem 0" }}>
-                Browsers cannot preview {attachment.mime_class} files directly.
+                Browsers cannot preview {mimeClass} files directly.
               </p>
               <a
                 href={fileUrl}
@@ -2823,8 +2973,9 @@
     }
 
     function FilesPage() {
-      const { courseData } = useCourseContext();
+      const { courseData, reconnectFolder } = useCourseContext();
       const { navigateToPage } = useNavigation();
+      const [selectedFile, setSelectedFile] = useState(null);
 
       if (!courseData) {
         return <div>Loading...</div>;
@@ -2853,6 +3004,10 @@
 
       // Filter the combined list by activeFolder
       const filteredList = combinedList.filter((item) => item.parent_folder_id === activeFolder || item.folder_id === activeFolder);
+
+      if (selectedFile) {
+        return <FilesPageDetailView file={selectedFile} onBack={() => setSelectedFile(null)} />;
+      }
 
       return (
         <div style={{ width: "100%", marginBottom: "8em" }}>
@@ -2904,7 +3059,9 @@
                           style={{ fontWeight: "bold", color: "black" }}
                           onClick={(e) => {
                             e.preventDefault();
+                            reconnectFolder();
                             setActiveFolder(item.id);
+                            setSelectedFile(null);
                           }}
                         >
                           {item.display_name}
@@ -2914,10 +3071,8 @@
                           className='assignment-link'
                           onClick={(e) => {
                             e.preventDefault();
-                            if (getAppContext() == "local_file") {
-                              // window.open("./Submissions/document.pdf", "_blank") Implement later
-                            }
-
+                            reconnectFolder();
+                            setSelectedFile(item);
                           }}
                         >
                           {item.display_name}
@@ -2937,14 +3092,37 @@
                     </td>
                   </tr>
                 ))}
+                {filteredList.length === 0 && <tr><td colSpan={4}>No files in this folder, <a className='assignment-link' onClick={() => setActiveFolder(foldersArray.find((folder) => folder.id === activeFolder)?.parent_folder_id || rootFolder || null)}>Back</a></td></tr>}
               </tbody>
             </table>
           </div>
         </div>
       );
     }
-    function FilesPageDetailView() {
-      
+    function FilesPageDetailView({ file, onBack }) {
+      if (!file) {
+        return <h1>No File Selected</h1>;
+      }
+
+      const formattedCreated = file.created_at ? new Date(file.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
+      const formattedUpdated = file.updated_at ? new Date(file.updated_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
+      const formattedSize = file.size ? (file.size / 1024).toFixed(1) + ' KB' : '-';
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', width: '100%', marginBottom: '8em', marginTop: "1em" }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h2 style={{ color: '#666666', fontSize: 24, margin: 0 }}>{file.display_name || file.filename}</h2>
+            <button onClick={onBack} style={{ background: '#00842c', color: '#fff', border: 'none', borderRadius: '4px', padding: '6px 12px', cursor: 'pointer' }}>Back</button>
+          </div>
+          <div style={{ marginBottom: '1.5rem', backgroundColor: '#f9fafb', padding: '1rem', borderRadius: '0.5rem', border: '1px solid #e5e7eb' }}>
+            <p style={{ margin: '0.25rem 0' }}><strong>Type:</strong> {file['content-type'] || file.mime_class || 'unknown'}</p>
+            <p style={{ margin: '0.25rem 0' }}><strong>Size:</strong> {formattedSize}</p>
+            <p style={{ margin: '0.25rem 0' }}><strong>Created:</strong> {formattedCreated}</p>
+            <p style={{ margin: '0.25rem 0' }}><strong>Updated:</strong> {formattedUpdated}</p>
+          </div>
+          <LocalAttachmentViewer file={file} />
+        </div>
+      );
     }
 
     // Multi-use components below
