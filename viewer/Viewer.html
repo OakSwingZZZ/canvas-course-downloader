@@ -473,7 +473,7 @@
       width: 100%;
       border-collapse: collapse;
     }
-    .pages-table td{
+    .pages-table td {
       padding: 0.5em 1em;
       border-bottom: 1px solid #dcdfe3;
     }
@@ -481,7 +481,7 @@
       font-weight: bold;
       color: #39454e;
       text-align: left;
-      padding: 0 .5em
+      padding: 0 0.5em;
     }
     .pages-table tbody {
       font-size: 14px;
@@ -502,6 +502,35 @@
 
       // If using UMD via script tag:
       const { get, set, del } = idbKeyval;
+
+      /**
+       * Detects the current execution environment of the application.
+       * Returns: 'local_file', 'extension', 'localhost', 'website', or 'unknown'
+       */
+      function getAppContext() {
+        const protocol = window.location.protocol;
+        const hostname = window.location.hostname;
+
+        // 1. Local HTML file opened directly from the hard drive
+        if (protocol === "file:") {
+          return "local_file";
+        }
+
+        // 2. Running inside a browser extension (Chrome, Edge, Brave, Opera, Firefox)
+        if (protocol === "chrome-extension:" || protocol === "moz-extension:") {
+          return "extension";
+        }
+
+        // 3. Hosted on a web server
+        if (protocol === "http:" || protocol === "https:") {
+          if (hostname === "localhost" || hostname === "127.0.0.1") {
+            return "localhost";
+          }
+          return "website";
+        }
+
+        return "unknown";
+      }
 
       /**
        * Creating a context for course data so it can be accessed by all components.
@@ -659,7 +688,7 @@
        */
       const NavigationContext = React.createContext();
       function NavigationProvider({ children }) {
-        const [activeKey, setActiveKey] = useState("pages");
+        const [activeKey, setActiveKey] = useState("files");
         const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
         const [selectedPageUrl, setSelectedPageUrl] = useState(null);
 
@@ -866,7 +895,7 @@
           (p) =>
             String(p.url) === String(selectedPageUrl) ||
             String(p.page_id) === String(selectedPageUrl) ||
-            String(p.id) === String(selectedPageUrl)
+            String(p.id) === String(selectedPageUrl),
         );
       }, [selectedPageUrl, courseData]);
 
@@ -939,6 +968,8 @@
           return <ModulesPage />;
         case "pages":
           return currentPage ? <PageDetailView page={currentPage} /> : <PagesPage />;
+        case "files":
+          return <FilesPage />;
         case "frontpage":
           return <HomePage />;
         default:
@@ -1251,7 +1282,7 @@
                   maxGrade={item?.points_possible} // Uses 'points_possible' from Canvas JSON
                   type={handleItemType(item)} // Uses 'type' from Canvas JSON, converted to lowercase
                   assignment={item.type == "Assignment" ? item : undefined}
-                  pageUrl={item.type == "Page" ? (item.page_url || item.url) : undefined}
+                  pageUrl={item.type == "Page" ? item.page_url || item.url : undefined}
                   isModuleItem={true}
                   indent={item?.indent ?? 0} // Uses 'indent' from Canvas JSON to determine the indentation level of the module item
                 />
@@ -2598,16 +2629,30 @@
                         {page.title}
                       </a>
                       {page.front_page && (
-                        <span style={{ marginLeft: "8px", fontSize: "11px", backgroundColor: "#00842c", color: "#fff", padding: "2px 6px", borderRadius: "10px", fontWeight: "bold" }}>
+                        <span
+                          style={{
+                            marginLeft: "8px",
+                            fontSize: "11px",
+                            backgroundColor: "#00842c",
+                            color: "#fff",
+                            padding: "2px 6px",
+                            borderRadius: "10px",
+                            fontWeight: "bold",
+                          }}
+                        >
                           Front Page
                         </span>
                       )}
                     </td>
                     <td style={{ minWidth: "fit-content", whiteSpace: "nowrap" }}>
-                      {page.created_at ? new Date(page.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "-"}
+                      {page.created_at
+                        ? new Date(page.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                        : "-"}
                     </td>
                     <td style={{ minWidth: "fit-content", whiteSpace: "nowrap" }}>
-                      {page.updated_at ? new Date(page.updated_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "-"}
+                      {page.updated_at
+                        ? new Date(page.updated_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                        : "-"}
                     </td>
                   </tr>
                 ))}
@@ -2659,12 +2704,17 @@
             }
 
             const targetUrlRaw = (page.url || page.title || "").toLowerCase().trim();
-            const targetUrlSanitized = sanitizeFilename(page.url || page.title || "").toLowerCase().trim();
+            const targetUrlSanitized = sanitizeFilename(page.url || page.title || "")
+              .toLowerCase()
+              .trim();
             let matchedFileHandle = null;
 
             for await (const entry of pagesHandle.values()) {
               if (entry.kind === "file" && (entry.name.endsWith(".html") || entry.name.endsWith(".htm"))) {
-                const nameWithoutExt = entry.name.replace(/\.html?$/i, "").toLowerCase().trim();
+                const nameWithoutExt = entry.name
+                  .replace(/\.html?$/i, "")
+                  .toLowerCase()
+                  .trim();
                 const nameSanitized = sanitizeFilename(nameWithoutExt).toLowerCase().trim();
 
                 if (
@@ -2738,11 +2788,25 @@
             <span style={{ display: "flex", flexDirection: "column" }}>
               <span className='assignment-student-header-title'>{page.title}</span>
               <span style={{ fontSize: "14px", color: "#555", marginTop: "4px" }}>
-                {page.updated_at ? `Last updated: ${customDateFormat(page.updated_at)}` : page.created_at ? `Created: ${customDateFormat(page.created_at)}` : ""}
+                {page.updated_at
+                  ? `Last updated: ${customDateFormat(page.updated_at)}`
+                  : page.created_at
+                    ? `Created: ${customDateFormat(page.created_at)}`
+                    : ""}
               </span>
             </span>
             {page.front_page && (
-              <span style={{ backgroundColor: "#00842c", color: "#fff", padding: "4px 10px", borderRadius: "12px", fontSize: "12px", fontWeight: "bold", alignSelf: "center" }}>
+              <span
+                style={{
+                  backgroundColor: "#00842c",
+                  color: "#fff",
+                  padding: "4px 10px",
+                  borderRadius: "12px",
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  alignSelf: "center",
+                }}
+              >
                 Front Page
               </span>
             )}
@@ -2751,18 +2815,136 @@
           <div style={{ marginTop: "1.5em" }}>
             {isLoading && <div style={{ color: "#666", padding: "1em" }}>Loading page content...</div>}
             {error && <div style={{ color: "#c00", padding: "1em", backgroundColor: "#fee", borderRadius: "4px" }}>{error}</div>}
-            {!isLoading && !error && bodyHtml && (
-              <div
-                className='assignment-details'
-                dangerouslySetInnerHTML={{ __html: bodyHtml }}
-              />
-            )}
-            {!isLoading && !error && !bodyHtml && (
-              <div style={{ color: "#666", padding: "1em" }}>No content available for this page.</div>
-            )}
+            {!isLoading && !error && bodyHtml && <div className='assignment-details' dangerouslySetInnerHTML={{ __html: bodyHtml }} />}
+            {!isLoading && !error && !bodyHtml && <div style={{ color: "#666", padding: "1em" }}>No content available for this page.</div>}
           </div>
         </div>
       );
+    }
+
+    function FilesPage() {
+      const { courseData } = useCourseContext();
+      const { navigateToPage } = useNavigation();
+
+      if (!courseData) {
+        return <div>Loading...</div>;
+      }
+      if (!courseData?.Files || (courseData?.Files?.files?.length === 0 && courseData?.Files?.folders?.length === 0)) {
+        return <div>No files available.</div>;
+      }
+      // Find the ID of the main folder
+      const rootFolder = courseData.Files.folders.find((folder) => folder.parent_folder_id === null);
+
+      const [activeFolder, setActiveFolder] = useState(rootFolder ? rootFolder.id : null);
+
+      // Build unified list of files and folders, sorted by display name
+      const filesArray = Array.isArray(courseData.Files.files) ? courseData.Files.files : Object.values(courseData.Files.files);
+      const foldersArray = Array.isArray(courseData.Files.folders) ? courseData.Files.folders : Object.values(courseData.Files.folders);
+      const combinedList = [...filesArray, ...foldersArray]
+        .map((item) => {
+          if (item.display_name) {
+            return { ...item, _type: "file" };
+          } else if (item.name) {
+            return { ...item, _type: "folder", display_name: item.name };
+          }
+          return { ...item, _type: "unknown" };
+        })
+        .sort((a, b) => (a.display_name || "").localeCompare(b.display_name || ""));
+
+      // Filter the combined list by activeFolder
+      const filteredList = combinedList.filter((item) => item.parent_folder_id === activeFolder || item.folder_id === activeFolder);
+
+      return (
+        <div style={{ width: "100%", marginBottom: "8em" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <h1 style={{ color: "#666666", fontSize: 28.8 }}>Files &amp; Folders</h1>
+            {activeFolder !== rootFolder?.id && (
+              <span
+                className='assignment-link'
+                style={{
+                  fontWeight: "bold",
+                  color: "black",
+                  marginRight: "2em",
+                  border: "1px solid rgb(232, 234, 236)",
+                  padding: "0.25em",
+                  borderRadius: "4px",
+                  backgroundColor: "rgb(242, 244, 244)",
+                }}
+                onClick={() => {
+                  setActiveFolder(foldersArray.find((folder) => folder.id === activeFolder)?.parent_folder_id || rootFolder || null);
+                }}
+              >
+                Back
+              </span>
+            )}
+          </div>
+          <div className='pages-container' style={{ width: "100%" }}>
+            <table className='pages-table' style={{ width: "100%" }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid rgb(39, 53, 64)" }}>
+                  <th style={{ minWidth: "fit-content", whiteSpace: "nowrap" }}>Title</th>
+                  <th style={{ minWidth: "fit-content", whiteSpace: "nowrap" }}>Type</th>
+                  <th style={{ minWidth: "fit-content", whiteSpace: "nowrap" }}>Creation Date</th>
+                  <th style={{ minWidth: "fit-content", whiteSpace: "nowrap" }}>Updated at</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredList.map((item, index) => (
+                  <tr key={item.id || index} style={{ backgroundColor: index % 2 === 0 ? "#f2f4f4" : "white" }}>
+                    <td>
+                      {item._type === "folder" ? (
+                        <a
+                          className='assignment-link'
+                          style={{ fontWeight: "bold", color: "black" }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setActiveFolder(item.id);
+                          }}
+                        >
+                          {item.display_name}
+                        </a>
+                      ) : (
+                        <a
+                          className='assignment-link'
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (getAppContext() == "local_file") {
+                              // window.open("./Submissions/document.pdf", "_blank") Implement later
+                            }
+
+                          }}
+                        >
+                          {item.display_name}
+                        </a>
+                      )}
+                    </td>
+                    <td>{item._type === "folder" ? "folder" : item["content-type"]}</td>
+                    <td style={{ minWidth: "fit-content", whiteSpace: "nowrap" }}>
+                      {item.created_at
+                        ? new Date(item.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                        : "-"}
+                    </td>
+                    <td style={{ minWidth: "fit-content", whiteSpace: "nowrap" }}>
+                      {item.updated_at
+                        ? new Date(item.updated_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                        : "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+    function FilesPageDetailView() {
+      
     }
 
     // Multi-use components below
