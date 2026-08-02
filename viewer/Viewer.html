@@ -190,14 +190,36 @@
       overflow-y: hidden;
     }
 
-    /* Force all dynamic images inside course content to stay within bounds */
+    /* Force all dynamic images and media elements inside course content to stay within parent bounds */
+    img, video, iframe, embed, object {
+      max-width: 100% !important;
+      height: auto !important;
+      box-sizing: border-box;
+    }
+
+    .discussion-description,
+    .assignment-description,
+    .page-div,
+    #home-page-content {
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow-wrap: break-word;
+      word-break: break-word;
+    }
+
+    .discussion-description img,
+    .assignment-description img,
+    .page-div img,
     #home-page-content img {
       max-width: 100% !important;
       height: auto !important;
-      display: block;
+      object-fit: contain;
     }
 
     /* Force rich text tables to respect container boundaries */
+    .discussion-description table,
+    .assignment-description table,
+    .page-div table,
     #home-page-content table {
       max-width: 100% !important;
       width: 100% !important;
@@ -206,6 +228,9 @@
     }
 
     /* Fix table cells so large button graphics don't overflow */
+    .discussion-description td,
+    .assignment-description td,
+    .page-div td,
     #home-page-content td {
       max-width: 0;
       overflow: hidden;
@@ -293,6 +318,8 @@
     }
     .canvas-item-icon {
       margin-right: 1em;
+      height: 16px;
+      width: 16px;
     }
     .canvas-item-icon:not(:has(path)) {
       display: none;
@@ -688,15 +715,17 @@
        */
       const NavigationContext = React.createContext();
       function NavigationProvider({ children }) {
-        const [activeKey, setActiveKey] = useState("files");
+        const [activeKey, setActiveKey] = useState("discussions");
         const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
         const [selectedPageUrl, setSelectedPageUrl] = useState(null);
+        const [selectedDiscussionId, setSelectedDiscussionId] = useState("108167");
 
         // Navigate to a main section (resets sub-view detail)
         const navigateToSection = (key) => {
           setActiveKey(key);
           setSelectedAssignmentId(null);
           setSelectedPageUrl(null);
+          setSelectedDiscussionId(null);
         };
         // Navigate directly to a specific assignment detail view
         const navigateToAssignment = (assignmentId) => {
@@ -710,15 +739,22 @@
           setSelectedPageUrl(pageUrl);
           setSelectedAssignmentId(null);
         };
+        const navigateToDiscussion = (discussionId) => {
+          setActiveKey("discussions"); // Keeps "Pages" active on the left sidebar!
+          setSelectedDiscussionId(discussionId);
+          setSelectedAssignmentId(null);
+        };
         return (
           <NavigationContext.Provider
             value={{
               activeKey,
               selectedAssignmentId,
               selectedPageUrl,
+              selectedDiscussionId,
               navigateToSection,
               navigateToAssignment,
               navigateToPage,
+              navigateToDiscussion,
             }}
           >
             {children}
@@ -836,7 +872,7 @@
   <script type="text/babel">
     function MainContent() {
       const [showCourseList, setShowCourseList] = useState(true);
-      const { activeKey, selectedAssignmentId, selectedPageUrl, navigateToSection } = useNavigation();
+      const { activeKey, selectedAssignmentId, selectedPageUrl, selectedDiscussionId, navigateToSection } = useNavigation();
 
       const { courseData } = useCourseContext();
 
@@ -950,7 +986,7 @@
             }}
           >
             {showCourseList && <CourseList elements={elements} activeKey={activeKey} callback={(key) => navigateToSection(key)} />}
-            {renderActiveContent(activeKey, currentAssignment, currentPage)}
+            {renderActiveContent(activeKey, currentAssignment, currentPage, selectedDiscussionId)}
           </div>
         </main>
       );
@@ -958,7 +994,7 @@
     /**
      * Switch statement to render the appropriate content based on the activeKey. It currently handles the "frontPage" case and a default case for other keys.
      */
-    function renderActiveContent(activeKey, currentAssignment, currentPage) {
+    function renderActiveContent(activeKey, currentAssignment, currentPage, selectedDiscussionId) {
       switch (activeKey) {
         case "assignments":
           return currentAssignment ? <AssignmentDetailView assignment={currentAssignment} /> : <AssignmentsPage />;
@@ -970,6 +1006,10 @@
           return currentPage ? <PageDetailView page={currentPage} /> : <PagesPage />;
         case "files":
           return <FilesPage />;
+        case "discussions":
+          return selectedDiscussionId ? <DiscussionDetailView discussionId={selectedDiscussionId} /> : <DiscussionsPage />;
+        case "announcements":
+          return <AnnouncementsPage />;
         case "frontpage":
           return <HomePage />;
         default:
@@ -2032,9 +2072,12 @@
       if (contentType === "application/pdf" || filename.endsWith(".pdf")) return "pdf";
       if (contentType.startsWith("text/") || /\.(txt|md|csv|json|js|py|c|cpp|css|xml)$/.test(filename)) return "text";
       if (contentType.includes("html") || /\.(html|htm)$/.test(filename)) return "html";
-      if (contentType.includes("word") || contentType.includes("officedocument.wordprocessingml") || /\.(doc|docx)$/.test(filename)) return "doc";
-      if (contentType.includes("powerpoint") || contentType.includes("officedocument.presentationml") || /\.(ppt|pptx)$/.test(filename)) return "ppt";
-      if (contentType.includes("excel") || contentType.includes("officedocument.spreadsheetml") || /\.(xls|xlsx)$/.test(filename)) return "xls";
+      if (contentType.includes("word") || contentType.includes("officedocument.wordprocessingml") || /\.(doc|docx)$/.test(filename))
+        return "doc";
+      if (contentType.includes("powerpoint") || contentType.includes("officedocument.presentationml") || /\.(ppt|pptx)$/.test(filename))
+        return "ppt";
+      if (contentType.includes("excel") || contentType.includes("officedocument.spreadsheetml") || /\.(xls|xlsx)$/.test(filename))
+        return "xls";
       return "unknown";
     }
 
@@ -2047,7 +2090,7 @@
       const [isLoading, setIsLoading] = useState(true);
 
       const targetFile = file || attachment;
-      const rawFileName = targetFile ? (targetFile.display_name || targetFile.filename || "") : "";
+      const rawFileName = targetFile ? targetFile.display_name || targetFile.filename || "" : "";
       const sanitizedAssignmentName = assignment ? sanitizeFilename(assignment.name) : "";
       const sanitizedFileName = sanitizeFilename(rawFileName);
 
@@ -2173,7 +2216,10 @@
                   if (fn.toLowerCase().startsWith("course files")) {
                     fn = fn.slice("course files".length);
                   }
-                  folderPathParts = fn.split("/").map((s) => s.trim()).filter(Boolean);
+                  folderPathParts = fn
+                    .split("/")
+                    .map((s) => s.trim())
+                    .filter(Boolean);
                 } else if (fileFolder) {
                   const parts = [];
                   let curr = fileFolder;
@@ -2202,11 +2248,7 @@
                       if (entry.kind === "directory") {
                         const entryRaw = entry.name.toLowerCase().trim();
                         const entrySanitized = sanitizeFilename(entry.name).toLowerCase().trim();
-                        if (
-                          entryRaw === partRaw ||
-                          entrySanitized === partSanitized ||
-                          entrySanitized === sanitizeFilename(partRaw)
-                        ) {
+                        if (entryRaw === partRaw || entrySanitized === partSanitized || entrySanitized === sanitizeFilename(partRaw)) {
                           nextHandle = entry;
                           break;
                         }
@@ -3092,7 +3134,21 @@
                     </td>
                   </tr>
                 ))}
-                {filteredList.length === 0 && <tr><td colSpan={4}>No files in this folder, <a className='assignment-link' onClick={() => setActiveFolder(foldersArray.find((folder) => folder.id === activeFolder)?.parent_folder_id || rootFolder || null)}>Back</a></td></tr>}
+                {filteredList.length === 0 && (
+                  <tr>
+                    <td colSpan={4}>
+                      No files in this folder,{" "}
+                      <a
+                        className='assignment-link'
+                        onClick={() =>
+                          setActiveFolder(foldersArray.find((folder) => folder.id === activeFolder)?.parent_folder_id || rootFolder || null)
+                        }
+                      >
+                        Back
+                      </a>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -3104,23 +3160,294 @@
         return <h1>No File Selected</h1>;
       }
 
-      const formattedCreated = file.created_at ? new Date(file.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
-      const formattedUpdated = file.updated_at ? new Date(file.updated_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
-      const formattedSize = file.size ? (file.size / 1024).toFixed(1) + ' KB' : '-';
+      const formattedCreated = file.created_at
+        ? new Date(file.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+        : "-";
+      const formattedUpdated = file.updated_at
+        ? new Date(file.updated_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+        : "-";
+      const formattedSize = file.size ? (file.size / 1024).toFixed(1) + " KB" : "-";
 
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', width: '100%', marginBottom: '8em', marginTop: "1em" }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h2 style={{ color: '#666666', fontSize: 24, margin: 0 }}>{file.display_name || file.filename}</h2>
-            <button onClick={onBack} style={{ background: '#00842c', color: '#fff', border: 'none', borderRadius: '4px', padding: '6px 12px', cursor: 'pointer' }}>Back</button>
+        <div style={{ display: "flex", flexDirection: "column", width: "100%", marginBottom: "8em", marginTop: "1em" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+            <h2 style={{ color: "#666666", fontSize: 24, margin: 0 }}>{file.display_name || file.filename}</h2>
+            <button
+              onClick={onBack}
+              style={{ background: "#00842c", color: "#fff", border: "none", borderRadius: "4px", padding: "6px 12px", cursor: "pointer" }}
+            >
+              Back
+            </button>
           </div>
-          <div style={{ marginBottom: '1.5rem', backgroundColor: '#f9fafb', padding: '1rem', borderRadius: '0.5rem', border: '1px solid #e5e7eb' }}>
-            <p style={{ margin: '0.25rem 0' }}><strong>Type:</strong> {file['content-type'] || file.mime_class || 'unknown'}</p>
-            <p style={{ margin: '0.25rem 0' }}><strong>Size:</strong> {formattedSize}</p>
-            <p style={{ margin: '0.25rem 0' }}><strong>Created:</strong> {formattedCreated}</p>
-            <p style={{ margin: '0.25rem 0' }}><strong>Updated:</strong> {formattedUpdated}</p>
+          <div
+            style={{
+              marginBottom: "1.5rem",
+              backgroundColor: "#f9fafb",
+              padding: "1rem",
+              borderRadius: "0.5rem",
+              border: "1px solid #e5e7eb",
+            }}
+          >
+            <p style={{ margin: "0.25rem 0" }}>
+              <strong>Type:</strong> {file["content-type"] || file.mime_class || "unknown"}
+            </p>
+            <p style={{ margin: "0.25rem 0" }}>
+              <strong>Size:</strong> {formattedSize}
+            </p>
+            <p style={{ margin: "0.25rem 0" }}>
+              <strong>Created:</strong> {formattedCreated}
+            </p>
+            <p style={{ margin: "0.25rem 0" }}>
+              <strong>Updated:</strong> {formattedUpdated}
+            </p>
           </div>
           <LocalAttachmentViewer file={file} />
+        </div>
+      );
+    }
+
+    function DiscussionsPage() {
+      const { courseData, reconnectFolder } = useCourseContext();
+      const { navigateToDiscussion } = useNavigation();
+      if (!courseData) {
+        return <div>Loading...</div>;
+      }
+      if (!courseData.Discussions) {
+        return <div>No discussions available.</div>;
+      }
+      // Convert dictionary object or array into a flat array of assignments
+      const discussionList = Array.isArray(courseData.Discussions) ? courseData.Discussions : Object.values(courseData.Discussions);
+      // sort discussions by reverse due date order
+      discussionList.sort((a, b) => {
+        return new Date(b.due_at) - new Date(a.due_at);
+      });
+
+      function DiscussionTableItemDetails({ discussion }) {
+        const indent = 0;
+        return (
+          <div
+            className='assignment-details'
+            style={{
+              display: "flex",
+              alignItems: "center",
+              paddingLeft: `${indent * 1}em`,
+              justifyContent: "space-between",
+              width: "100%",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <CanvasItemIcon icon_type={"discussion"} />
+              <div>
+                <h3
+                  className='assignment-info-title'
+                  style={{ fontSize: "16px", margin: "0", color: "#273450", cursor: "pointer" }}
+                  onClick={() => {
+                    reconnectFolder();
+                    if (discussion?.id) {
+                      navigateToDiscussion(discussion.id);
+                    }
+                  }}
+                >
+                  {discussion.title}
+                </h3>
+                <span className='assignment-info-item' style={{ color: "#666666", fontSize: 14, marginLeft: "0em" }}>
+                  <strong>Last post at {discussion?.last_reply_at ? fixDateFormat(discussion?.last_reply_at) : "-"}</strong>
+                </span>
+              </div>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-end",
+                flexDirection: "column",
+                marginLeft: "2em",
+                textAlign: "right",
+                justifyContent: "right",
+              }}
+            >
+              {discussion?.view && (
+                <h3 className='' style={{ fontSize: "16px", fontWeight: "normal", margin: "0", color: "#273450", cursor: "default" }}>
+                  {discussion?.view?.view?.length || "0"} Replies
+                </h3>
+              )}
+              {discussion?.assignment && (
+                <h3 className='' style={{ fontSize: "16px", fontWeight: "normal", margin: "0", color: "#273450", cursor: "default" }}>
+                  Due {fixDateFormat(discussion?.assignment?.due_at)}
+                </h3>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      if (courseData.Discussions) {
+        return (
+          <div className='page-div' style={{ marginBottom: "4em" }}>
+            <h1 style={{ color: "#666666", fontSize: 28.8 }}>Discussions</h1>
+            <CollapseTable title='Discussions'>
+              {discussionList.map((discussion, index) => (
+                <DiscussionTableItemDetails discussion={discussion} key={discussion.id} />
+              ))}
+            </CollapseTable>
+          </div>
+        );
+      }
+    }
+
+    function DiscussionDetailView({ discussionId }) {
+      const { courseData } = useCourseContext();
+      if (!courseData) {
+        return <div>Loading...</div>;
+      }
+      if (!courseData.Discussions) {
+        return <div>No discussions available.</div>;
+      }
+      const discussion = courseData.Discussions[discussionId];
+
+      function renderDiscussionBody() {
+        const view = discussion?.view?.view; // List of all replies
+        const participants = discussion?.view?.participants; // List of all participants
+        if (!view) {
+          return <div>No discussion body available.</div>;
+        }
+        if (!participants) {
+          return <div>No participants available.</div>;
+        }
+        return view.map((reply) => {
+          const [repliesHidden, setHidden] = useState(true);
+          if (reply?.deleted) {
+            return "";
+          }
+          return (
+            <div
+              key={reply.id}
+              style={{
+                border: "1px solid rgb(235, 236, 237)",
+                borderRadius: "4px",
+                padding: "1em",
+                marginTop: "1em",
+                flexDirection: "column",
+              }}
+            >
+              <NameProfileCard
+                name={participants.find((participant) => participant.id === reply?.user_id)?.display_name || "Unknown"}
+                date={reply.created_at}
+              />
+              <div
+                className='discussion-description'
+                style={{ marginBottom: "0em", maxWidth: "100%"  }}
+                dangerouslySetInnerHTML={{ __html: reply?.message }}
+              ></div>
+              {reply?.replies && reply?.replies?.length > 0 && (
+                <a
+                  onClick={() => {
+                    setHidden(!repliesHidden);
+                  }}
+                  className='assignment-link'
+                  style={{ display: "flex", alignItems: "center", gap: "5px" }}
+                >
+                  {repliesHidden ? "Show Replies " : "Hide Replies"}
+                  <svg style={{ height: "15px", width: "15px", fill: "rgb(14, 104, 179)", transform: repliesHidden ? "rotate(0deg)" : "rotate(90deg)" }} viewBox='0 0 1920 1920' xmlns='http://www.w3.org/2000/svg'>
+                    <path d='M526.299 0 434 92.168l867.636 867.767L434 1827.57l92.299 92.43 959.935-960.065z' fill='currentColor' />
+                  </svg>
+                </a>
+              )}
+              {!repliesHidden &&
+                reply?.replies?.map((reply) => {
+                  if (reply?.deleted) {
+                    return "";
+                  }
+                  return (
+                    <div
+                      key={reply.id}
+                      style={{
+                        border: "1px solid rgb(235, 236, 237)",
+                        borderRadius: "4px",
+                        padding: "1em",
+                        marginTop: "1em",
+                        flexDirection: "column",
+                      }}
+                    >
+                      <NameProfileCard
+                        name={participants.find((participant) => participant.id === reply?.user_id)?.display_name || "Unknown"}
+                        date={reply.created_at}
+                      />
+                      <div
+                        className='discussion-description'
+                        style={{ marginBottom: "0em", maxWidth: "100%" }}
+                        dangerouslySetInnerHTML={{ __html: reply?.message }}
+                      ></div>
+                    </div>
+                  );
+                })}
+            </div>
+          );
+        });
+      }
+      console.log("Rendering Discussion ID: ", discussionId);
+      return (
+        <div className='page-div' style={{ marginBottom: "4em" }}>
+          <div
+            className='discussion-header'
+            style={{
+              display: "flex",
+              alignItems: "left",
+              marginBottom: "1rem",
+              border: "1px solid rgb(235, 236, 237)",
+              borderRadius: "4px",
+              padding: "1em",
+              marginTop: "2em",
+              flexDirection: "column",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                justifyContent: "space-between",
+                color: "rgb(39, 53, 64)",
+                marginBottom: "1em",
+              }}
+            >
+              <span>Due {fixDateFormat(discussion?.assignment?.due_at) || "Never"}</span>
+              <span style={{ fontSize: "14px" }}>{discussion?.assignment?.points_possible || "0"} Points Possible</span>
+            </div>
+            <NameProfileCard
+              name={discussion?.author?.display_name || "Anonnymous"}
+              date={discussion?.delayed_post_at || discussion?.created_at || discussion?.last_reply_at || discussion?.posted_at}
+            />
+            <h2 style={{ color: "rgb(39, 53, 64)", fontSize: "28.8px", marginBottom: "0em" }}>{discussion?.title}</h2>
+            <div
+              className='discussion-description'
+              dangerouslySetInnerHTML={{ __html: discussion?.message || "No discription provided." }}
+            ></div>
+          </div>
+          <div
+            className='discussion-body'
+            style={{
+              display: "flex",
+              alignItems: "left",
+              marginBottom: "1rem",
+              padding: "1em",
+              marginTop: "2em",
+              flexDirection: "column",
+            }}
+          >
+            {renderDiscussionBody()}
+          </div>
+        </div>
+      );
+    }
+
+    function AnnouncementsPage() {
+      return (
+        <div>
+          <h1>Announcements</h1>
         </div>
       );
     }
@@ -3514,6 +3841,42 @@
             </td>
           </tr>
         </>
+      );
+    }
+
+    function NameProfileCard({ name, date }) {
+      let initials = name
+        .split(" ")
+        .map((name) => name[0])
+        .join("");
+      initials = initials.toUpperCase();
+      let dateString = "-";
+      if (date) {
+        dateString = fixDateFormat(date);
+      }
+      return (
+        <div style={{ display: "flex", alignItems: "center", gap: "1em" }}>
+          <div
+            style={{
+              border: "2px solid rgb(141, 149, 159)",
+              color: "rgb(43, 122, 188)",
+              fontWeight: "700",
+              borderRadius: "50%",
+              minHeight: "50px",
+              minWidth: "50px",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              fontSize: "1.25 rem",
+            }}
+          >
+            {initials}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <span style={{ fontWeight: "bold" }}>{name}</span>
+            <span style={{ color: "rgb(99, 109, 117)" }}>{dateString}</span>
+          </div>
+        </div>
       );
     }
 
