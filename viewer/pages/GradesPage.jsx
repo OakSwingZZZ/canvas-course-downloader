@@ -218,7 +218,7 @@ function GradesPage() {
               detailsHidden={openStates[grade.id] ?? true}
               hideDetailCallback={() => handleToggleModule(grade.id)}
               assignmentGroups={assignmentGroups}
-              key={index}
+              key={index + grade.id}
             />
           ))}
           {assignmentGroups &&
@@ -255,10 +255,10 @@ function GradesPage() {
               </strong>
             </td>
             <td style={{ textAlign: "center" }}>
-              <strong>
+              {useAssignmentGroupsForWeighting && <strong>
                 {calculateTotalPoints(gradeList)?.totalPointsEarned?.toFixed(2) || "N/A"} /{" "}
                 {calculateTotalPoints(gradeList)?.totalPointsPossible?.toFixed(2) || "N/A"}
-              </strong>
+              </strong>}
             </td>
           </tr>
         </tbody>
@@ -361,11 +361,11 @@ function GradeTableRow({ assignment, detailsHidden, hideDetailCallback, assignme
         <td style={{ textAlign: "left" }}>
           {assignment.submission?.submitted_at ? fixDateFormat(assignment.submission?.submitted_at) : ""}
         </td>
-        <td style={{ textAlign: "center" }}>
+        <td style={{ textAlign: "left" }}>
           {assignment.submission?.late && !assignment.submission?.missing && <ContextPill type='late' />}
           {assignment.submission?.missing && <ContextPill type='missing' />}
         </td>
-        <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>{renderGrade(assignment)}</td>
+        <td style={{ textAlign: "left", whiteSpace: "nowrap" }}>{renderGrade(assignment)}</td>
         <td>
           {/*Add details button, count twoards final grade, and (comments)?*/}
           {!assignment?.score_statistics ? null : (
@@ -389,7 +389,7 @@ function GradeTableRow({ assignment, detailsHidden, hideDetailCallback, assignme
             >
               <path
                 d='M1709.289 959.673v854.604H341.808v-797.744h113.947v683.797H1595.34V959.673h113.948ZM1840.35 434.57l79.65 81.586-797.63 779.627-364.518-356.54 79.649-81.36 284.868 278.488 717.982-701.801ZM455.789 105v341.956h341.956v113.947H455.789v341.728H341.842V560.903H0V446.956h341.842V105h113.947Zm1082.533 341.876v113.947h-626.71V446.876h626.71Z'
-                fill-rule='evenodd'
+                fillRule='evenodd'
               />
             </svg>
           )}
@@ -414,7 +414,7 @@ function GradeTableRow({ assignment, detailsHidden, hideDetailCallback, assignme
             >
               <path
                 d='M960 0c530.193 0 960 429.807 960 960s-429.807 960-960 960S0 1490.193 0 960 429.807 0 960 0Zm0 101.053c-474.384 0-858.947 384.563-858.947 858.947S485.616 1818.947 960 1818.947 1818.947 1434.384 1818.947 960 1434.384 101.053 960 101.053Zm-9.32 1221.49c-80.024 0-145.128 65.105-145.128 145.129 0 80.024 65.104 145.128 145.128 145.128 80.024 0 145.128-65.104 145.128-145.128 0-80.024-65.104-145.128-145.128-145.128Zm192.785-968.859h-385.57l93.901 851.327h197.768l93.901-851.327Z'
-                fill-rule='evenodd'
+                fillRule='evenodd'
               />
             </svg>
           )}
@@ -436,7 +436,7 @@ function GradeTableRow({ assignment, detailsHidden, hideDetailCallback, assignme
           display: detailsHidden || !assignment?.score_statistics ? "none" : "table-row",
         }}
         className='grade-row-details'
-        key={`${assignment.id}-details`}
+        key={`${assignment.id}-details2`}
       >
         <td colSpan='6' style={{ padding: "0.5em 1em" }}>
           <table
