@@ -42,16 +42,6 @@ function loadSettings() {
 // Python/regex rendering to the extension's DOM/JS style.
 // ---------------------------------------------------------------------------
 
-/** Converts a Blob to a Base64 data-URI string asynchronously using FileReader. */
-function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
 /** Escapes text for safe interpolation into exported HTML. */
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -177,7 +167,7 @@ async function fetchQuizReviewViaHtml(quiz) {
     const historyUrl = quiz.html_url.replace(/\?.*$/, "") + "/history";
     const histRes = await fetchWithRetry(historyUrl);
     if (!histRes.ok) return null;
-
+    
     const histDoc = new DOMParser().parseFromString(await histRes.text(), "text/html");
     const questionsEl = histDoc.querySelector("#questions");
     if (!questionsEl || questionsEl.querySelectorAll(".question").length === 0) return null;
@@ -272,19 +262,13 @@ async function downloadAsZip(files, courseName, settings, log) {
 
       try {
         let input;
-        if (file.content !== undefined) {
-          input = new TextEncoder().encode(file.content);
-        } else if (file.buffer !== undefined) {
-          input = new Uint8Array(file.buffer);
-        } else if (file.url && (file.url.startsWith("data:") || file.url.startsWith("blob:"))) {
+        if (file.url.startsWith("data:")) {
           const res = await fetch(file.url);
           input = new Uint8Array(await res.arrayBuffer());
-        } else if (file.url) {
+        } else {
           const res = await fetch(file.url, { signal: abortController.signal });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           input = res.body;
-        } else {
-          throw new Error("No URL, content, or buffer found for file");
         }
         completed++;
         yield {
@@ -343,29 +327,21 @@ async function downloadAsZip(files, courseName, settings, log) {
     return;
   }
 
-  // Convert the ZIP Blob to a Base64 data-URI string.
-  // FileReader converts the Blob natively in C++, producing a standard JS string
-  // that passes through chrome.runtime.sendMessage without ArrayBuffer serialization issues.
-  const dataUrl = await blobToDataUrl(blob);
+  const url = URL.createObjectURL(blob);
+  const prefix = settings.folderPrefix ? `${sanitizeFilename(settings.folderPrefix)}/` : "";
+  const filename = `${prefix}${safeName}.zip`;
 
   await new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
-      {
-        type: "START_DOWNLOAD",
-        payload: {
-          files: [{ url: dataUrl, filename: `${safeName}.zip`, path: "" }],
-          courseName: "",
-          conflictAction: settings.conflictAction,
-          throttleMs: 0,
-          folderPrefix: settings.folderPrefix,
-        },
-      },
+      { type: "START_DOWNLOAD", payload: { files: [{ url, filename, path: "" }], courseName: "", conflictAction: settings.conflictAction, throttleMs: 0, folderPrefix: "" } },
       (response) => {
         if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
         resolve(response);
       }
     );
   });
+
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 
   updateDownloadPanel({
     total: totalFiles, completed, failed, queued: 0, downloading: 0,
@@ -435,11 +411,17 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   log(isTeacher ? "Teacher role detected — archiving student data" : "Student role — archiving own view");
 
   // Fetch the course object itself so we can access the term name, other data.
-  const courseData = await fetchWithRetry(api("?include[]=term"));
-  const courseDataJson = await courseData.json();
-  const courseTerm = courseDataJson?.term;
-  console.log(`[Canvas Downloader] Course Term: ${JSON.stringify(courseTerm)}`);
-  const useAssignmentGroups = courseDataJson?.apply_assignment_group_weights ?? true;
+  let courseTerm = null;
+  let useAssignmentGroups = true;
+  try {
+    const courseData = await fetchWithRetry(api("?include[]=term"));
+    const courseDataJson = await courseData.json();
+    courseTerm = courseDataJson?.term;
+    console.log(`[Canvas Downloader] Course Term: ${JSON.stringify(courseTerm)}`);
+    useAssignmentGroups = courseDataJson?.apply_assignment_group_weights ?? true;
+  } catch (err) {
+    console.error("[Canvas Downloader] Failed to fetch course data:", err);
+  }
 
 
   // Counts surfaced in the export manifest.
@@ -484,14 +466,13 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     path,
   });
 
-  /** True if this entry is a generated document (raw body) OR a synthesized in-memory file (CSV, manifest). */
-  const isSynthetic = (f) => f.rawBody !== undefined || f.content !== undefined || f.buffer !== undefined || (f.url && (f.url.startsWith("data:") || f.url.startsWith("blob:")));
+  /** True if this entry is a generated document (raw body) OR a synthesized data-URI (CSV, manifest). */
+  const isSynthetic = (f) => f.rawBody !== undefined || (f.url && f.url.startsWith("data:"));
 
   // --- Stylesheet for exported HTML ----------------------------------------
   if (!isMarkdown) {
     filesToDownload.push({
-      content: FALLBACK_EXPORT_CSS,
-      mimeType: "text/css;charset=utf-8",
+      url: `data:text/css;charset=utf-8,${encodeURIComponent(FALLBACK_EXPORT_CSS)}`,
       filename: "styles.css",
       path: "",
     });
@@ -520,8 +501,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       // Saves information about the files and folders to a JSON file for the viewer to use later.
       let files_obj = { files: files, folders: folders }; // store the files and folders arrays in a single object and saves them to the Files.json
       filesToDownload.push({
-        content: JSON.stringify(sanitizeJsonHtml(files_obj)),
-        mimeType: "application/json;charset=utf-8",
+        url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(sanitizeJsonHtml(files_obj)))}`,
         filename: "Files.json",
         path: "Files/",
       });
@@ -756,8 +736,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     // Save the submissions object to a JSON file for use later in the viewer.
     if (types.saveJson) {
       filesToDownload.push({
-        content: JSON.stringify(sanitizeJsonHtml(self_submission_obj)),
-        mimeType: "application/json;charset=utf-8",
+        url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(sanitizeJsonHtml(self_submission_obj)))}`,
         filename: "Submissions.json",
         path: "Submissions/",
       });
@@ -783,8 +762,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     if (announcements.length > 0 && types.saveJson) {
       // Save the announcements object to a JSON file for use later in the viewer.
       filesToDownload.push({
-        content: JSON.stringify(sanitizeJsonHtml(announcements)),
-        mimeType: "application/json;charset=utf-8",
+        url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(sanitizeJsonHtml(announcements)))}`,
         filename: "Announcements.json",
         path: "Announcements/",
       });
@@ -906,8 +884,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     }
     if (types.saveJson){ // Saves the Discussions to the course file for the viewer
       filesToDownload.push({
-        content: JSON.stringify(sanitizeJsonHtml(discussion_obj), null, 2),
-        mimeType: "application/json;charset=utf-8",
+        url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(sanitizeJsonHtml(discussion_obj), null, 2))}`,
         filename: `Discussions.json`,
         path: `Discussions/`,
       });
@@ -932,7 +909,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       modules_obj[mod.id] = mod; // store the module object in the modules_obj using its id as the key
       modules_obj[mod.id].items = []; // store the items array in the module object
 
-      
+
       for (const item of items) {
         const item_with_grade = gradeAssignments.find((a) => a.id === item.content_id);
         modules_obj[mod.id].items.push({ ...item, ...(item_with_grade ?? undefined) }); // store the item with grade in the module object
@@ -1000,8 +977,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     filesToDownload.push(buildDocEntry("Modules", modulesBody, "Modules", "", "module-index"));
     if (types.saveJson){ // Saves Modules Data for use later in the viewer.
       filesToDownload.push({
-        content: JSON.stringify(sanitizeJsonHtml(modules_obj), null, 2),
-        mimeType: "application/json;charset=utf-8",
+        url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(sanitizeJsonHtml(modules_obj), null, 2))}`,
         filename: "Modules.json",
         path: "",
       });
@@ -1057,8 +1033,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     let pages_path = "Pages/";
     if (types.saveJson){ // Saves the Pages to a json file for the viewer.
       filesToDownload.push({
-        content: JSON.stringify(sanitizeJsonHtml(pages_obj), null, 2),
-        mimeType: "application/json;charset=utf-8",
+        url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(sanitizeJsonHtml(pages_obj), null, 2))}`,
         filename: "Pages.json",
         path: pages_path,
       });
@@ -1075,8 +1050,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       let frontPageJson = await frontPageData.json();
       if (frontPageData && frontPageJson && frontPageJson.page_id){ // Saves the front page to a json file for the viewer.
         filesToDownload.push({
-          content: JSON.stringify(sanitizeJsonHtml(frontPageJson), null, 2),
-          mimeType: "application/json;charset=utf-8",
+          url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(sanitizeJsonHtml(frontPageJson), null, 2))}`,
           filename: "FrontPage.json",
           path: "",
         });
@@ -1137,8 +1111,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       }
 
       filesToDownload.push({
-        content: rows.join("\n"),
-        mimeType: "text/csv;charset=utf-8",
+        url: `data:text/csv;charset=utf-8,${encodeURIComponent(rows.join("\n"))}`,
         filename: "Gradebook.csv",
         path: "",
       });
@@ -1153,8 +1126,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
         ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
       }
       filesToDownload.push({
-        content: studentRows.join("\n"),
-        mimeType: "text/csv;charset=utf-8",
+        url: `data:text/csv;charset=utf-8,${encodeURIComponent(studentRows.join("\n"))}`,
         filename: "Students.csv",
         path: "",
       });
@@ -1194,16 +1166,14 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
           assignments_obj[a.id] = a;
         }
         filesToDownload.push({
-          content: csvRows.join("\n"),
-          mimeType: "text/csv;charset=utf-8",
+          url: `data:text/csv;charset=utf-8,${encodeURIComponent(csvRows.join("\n"))}`,
           filename: "Grades.csv",
           path: "",
         });
         // store the assignment data to a JSON file for use later
         if (types.assignments && types.saveJson) {
           filesToDownload.push({
-            content: JSON.stringify(sanitizeJsonHtml(assignments_obj), null, 2),
-            mimeType: "application/json;charset=utf-8",
+            url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(sanitizeJsonHtml(assignments_obj), null, 2))}`,
             filename: "Assignments.json",
             path: "Assignments/",
           });
@@ -1234,8 +1204,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       }
       if (types.saveJson){
         filesToDownload.push({ // store the assignment group data to json file for use later
-          content: JSON.stringify(sanitizeJsonHtml(groups), null, 2),
-          mimeType: "application/json;charset=utf-8",
+          url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(sanitizeJsonHtml(groups), null, 2))}`,
           filename: "AssignmentGroups.json",
           path: "Assignments/",
         });
@@ -1248,8 +1217,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
           const gradingPeriods = await gradingPeriodsResponse.json();
 
           filesToDownload.push({
-            content: JSON.stringify(sanitizeJsonHtml(gradingPeriods), null, 2),
-            mimeType: "application/json;charset=utf-8",
+            url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(sanitizeJsonHtml(gradingPeriods), null, 2))}`,
             filename: "GradingPeriods.json",
             path: "Assignments/",
           });
@@ -1325,8 +1293,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
               }
               body += table + "</tbody></table>";
               filesToDownload.push({
-                content: csv.join("\n"),
-                mimeType: "text/csv;charset=utf-8",
+                url: `data:text/csv;charset=utf-8,${encodeURIComponent(csv.join("\n"))}`,
                 filename: "_grades.csv",
                 path: quizPath,
               });
@@ -1465,9 +1432,6 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     sourceUrl: `${domain}/courses/${courseId}`,
     exportDate: new Date().toISOString(),
     extensionVersion: chrome.runtime.getManifest().version,
-    manifestVersion: 2, //used for detecting if downloaded course has data required to use viewer
-    courseTerm: courseTerm,
-    useAssignmentGroupsForWeighting: useAssignmentGroups,
     counts: {
       files: files.length,
       pages: exportedPagesCount,
@@ -1487,8 +1451,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   };
 
   filesToDownload.push({
-    content: JSON.stringify(sanitizeJsonHtml(manifest), null, 2),
-    mimeType: "application/json;charset=utf-8",
+    url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(manifest, null, 2))}`,
     filename: "manifest.json",
     path: "",
   });
@@ -1566,17 +1529,12 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   }
 
   // --- Rewrite + encode pass on generated docs ---------------------------
-  // Converts raw HTML/MD page bodies into in-memory string payloads (`content`).
-  // Passing raw string text avoids data-URI length limits on large files and allows
-  // background.js to save the generated documents via chrome.downloads.download.
   for (const f of filesToDownload) {
     if (f.rawBody === undefined) continue;
     const rewritten = rewriteCanvasLinks(f.rawBody, urlMap, f.path);
-    const content = isMarkdown
-      ? toMarkdownString(f.title, htmlToMarkdown(rewritten))
-      : toHtmlString(f.title, rewritten, f.path);
-    f.content = content;
-    f.mimeType = isMarkdown ? "text/markdown;charset=utf-8" : "text/html;charset=utf-8";
+    f.url = isMarkdown
+      ? toMarkdownDataUri(f.title, htmlToMarkdown(rewritten))
+      : toHtmlDataUri(f.title, rewritten, f.path);
     delete f.rawBody;
     delete f.title;
     delete f.resourceType;

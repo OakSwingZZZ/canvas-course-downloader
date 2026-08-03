@@ -271,15 +271,17 @@ function relativePathToCourseRoot(filePath) {
 }
 
 /** Wraps content in an HTML page that links to `styles.css` at the course root. */
-function toHtmlString(title, body, filePath = "") {
+function toHtmlDataUri(title, body, filePath = "") {
   const safeBody = sanitizeHtml(body);
   const cssHref = `${relativePathToCourseRoot(filePath)}/styles.css`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><link rel="stylesheet" href="${cssHref}"></head><body><h1>${title}</h1>${safeBody}</body></html>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><link rel="stylesheet" href="${cssHref}"></head><body><h1>${title}</h1>${safeBody}</body></html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
-/** Wraps a Markdown body in a `# Title` heading. */
-function toMarkdownString(title, mdBody) {
-  return `# ${title}\n\n${mdBody}`;
+/** Wraps a Markdown body in a `# Title` heading and returns a data-URI. */
+function toMarkdownDataUri(title, mdBody) {
+  const md = `# ${title}\n\n${mdBody}`;
+  return `data:text/markdown;charset=utf-8,${encodeURIComponent(md)}`;
 }
 
 /**
