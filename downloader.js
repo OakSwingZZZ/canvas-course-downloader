@@ -269,7 +269,7 @@ async function downloadAsZip(files, courseName, settings, log) {
 
       try {
         let input;
-        if (file.url.startsWith("data:")) {
+        if (file.url.startsWith("data:") || file.url.startsWith("blob:")) {
           const res = await fetch(file.url);
           input = new Uint8Array(await res.arrayBuffer());
         } else {
@@ -338,15 +338,13 @@ async function downloadAsZip(files, courseName, settings, log) {
   const prefix = settings.folderPrefix ? `${sanitizeFilename(settings.folderPrefix)}/` : "";
   const filename = `${prefix}${safeName}.zip`;
 
-  await new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(
-      { type: "START_DOWNLOAD", payload: { files: [{ url, filename, path: "" }], courseName: "", conflictAction: settings.conflictAction, throttleMs: 0, folderPrefix: "" } },
-      (response) => {
-        if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
-        resolve(response);
-      }
-    );
-  });
+  // Trigger download directly in the content script context where the Blob URL lives
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 
@@ -467,13 +465,13 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     path,
   });
 
-  /** True if this entry is a generated document (raw body) OR a synthesized data-URI (CSV, manifest). */
-  const isSynthetic = (f) => f.rawBody !== undefined || (f.url && f.url.startsWith("data:"));
+  /** True if this entry is a generated document (raw body) OR a synthesized data-URI/blob (CSV, manifest). */
+  const isSynthetic = (f) => f.rawBody !== undefined || (f.url && (f.url.startsWith("data:") || f.url.startsWith("blob:")));
 
   // --- Stylesheet for exported HTML ----------------------------------------
   if (!isMarkdown) {
     filesToDownload.push({
-      url: `data:text/css;charset=utf-8,${encodeURIComponent(FALLBACK_EXPORT_CSS)}`,
+      url: createDataUrl(FALLBACK_EXPORT_CSS, "text/css;charset=utf-8"),
       filename: "styles.css",
       path: "",
     });
@@ -502,7 +500,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       // Saves information about the files and folders to a JSON file for the viewer to use later.
       let files_obj = { files: files, folders: folders }; // store the files and folders arrays in a single object and saves them to the Files.json
       filesToDownload.push({
-        url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(files_obj))}`,
+        url: createDataUrl(JSON.stringify(files_obj), "application/json;charset=utf-8"),
         filename: "Files.json",
         path: "Files/",
       });
@@ -737,7 +735,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     // Save the submissions object to a JSON file for use later in the viewer.
     if (types.saveJson) {
       filesToDownload.push({
-        url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(self_submission_obj))}`,
+        url: createDataUrl(JSON.stringify(self_submission_obj), "application/json;charset=utf-8"),
         filename: "Submissions.json",
         path: "Submissions/",
       });
@@ -763,7 +761,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     if (announcements.length > 0 && types.saveJson) {
       // Save the announcements object to a JSON file for use later in the viewer.
       filesToDownload.push({
-        url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(announcements))}`,
+        url: createDataUrl(JSON.stringify(announcements), "application/json;charset=utf-8"),
         filename: "Announcements.json",
         path: "Announcements/",
       });
@@ -885,7 +883,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     }
     if (types.saveJson){ // Saves the Discussions to the course file for the viewer
       filesToDownload.push({
-        url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(discussion_obj, null, 2))}`,
+        url: createDataUrl(JSON.stringify(discussion_obj, null, 2), "application/json;charset=utf-8"),
         filename: `Discussions.json`,
         path: `Discussions/`,
       });
@@ -978,7 +976,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     filesToDownload.push(buildDocEntry("Modules", modulesBody, "Modules", "", "module-index"));
     if (types.saveJson){ // Saves Modules Data for use later in the viewer.
       filesToDownload.push({
-        url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(modules_obj, null, 2))}`,
+        url: createDataUrl(JSON.stringify(modules_obj, null, 2), "application/json;charset=utf-8"),
         filename: "Modules.json",
         path: "",
       });
@@ -1030,9 +1028,10 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     let pages_path = "Pages/";
     if (types.saveJson){ // Saves the Pages to a json file for the viewer.
       filesToDownload.push({
-        url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(pages_obj, null, 2))}`,
+        url: createDataUrl(JSON.stringify(pages_obj, null, 2), "application/json;charset=utf-8"),
         filename: "Pages.json",
         path: pages_path,
+        isSynthetic: true,
       });
     }
 
@@ -1045,9 +1044,10 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   let frontPageJson = await frontPageData.json();
   if (frontPageData && frontPageJson && frontPageJson.page_id && types.saveJson){ // Saves the front page to a json file for the viewer.
     filesToDownload.push({
-      url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(frontPageJson, null, 2))}`,
+      url: createDataUrl(JSON.stringify(frontPageJson, null, 2), "application/json;charset=utf-8"),
       filename: "FrontPage.json",
       path: "",
+      isSynthetic: true,
     });
   }
   // --- Syllabus --------------------------------------------------------------
@@ -1102,7 +1102,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       }
 
       filesToDownload.push({
-        url: `data:text/csv;charset=utf-8,${encodeURIComponent(rows.join("\n"))}`,
+        url: createDataUrl(rows.join("\n"), "text/csv;charset=utf-8"),
         filename: "Gradebook.csv",
         path: "",
       });
@@ -1117,7 +1117,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
         ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
       }
       filesToDownload.push({
-        url: `data:text/csv;charset=utf-8,${encodeURIComponent(studentRows.join("\n"))}`,
+        url: createDataUrl(studentRows.join("\n"), "text/csv;charset=utf-8"),
         filename: "Students.csv",
         path: "",
       });
@@ -1157,14 +1157,14 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
           assignments_obj[a.id] = a;
         }
         filesToDownload.push({
-          url: `data:text/csv;charset=utf-8,${encodeURIComponent(csvRows.join("\n"))}`,
+          url: createDataUrl(csvRows.join("\n"), "text/csv;charset=utf-8"),
           filename: "Grades.csv",
           path: "",
         });
         // store the assignment data to a JSON file for use later
         if (types.assignments && types.saveJson) {
           filesToDownload.push({
-            url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(assignments_obj, null, 2))}`,
+            url: createDataUrl(JSON.stringify(assignments_obj, null, 2), "application/json;charset=utf-8"),
             filename: "Assignments.json",
             path: "Assignments/",
           });
@@ -1195,7 +1195,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       }
       if (types.saveJson){
         filesToDownload.push({ // store the assignment group data to json file for use later
-          url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(groups, null, 2))}`,
+          url: createDataUrl(JSON.stringify(groups, null, 2), "application/json;charset=utf-8"),
           filename: "AssignmentGroups.json",
           path: "Assignments/",
         });
@@ -1207,7 +1207,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
         const gradingPeriods = await gradingPeriodsResponse.json();
         if (types.saveJson){ // store the grading periods data to json file for use later
           filesToDownload.push({
-            url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(gradingPeriods, null, 2))}`,
+            url: createDataUrl(JSON.stringify(gradingPeriods, null, 2), "application/json;charset=utf-8"),
             filename: "GradingPeriods.json",
             path: "Assignments/",
           });
@@ -1332,14 +1332,73 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   // --- Canvas Viewer Compiler --------------------------
   // Compiles the canvas viewer to download for the offline viewer mode
   if (types.offlineViewer && types.saveJson){
-    const bundleJSURL = chrome.runtime.getURL("viewer/bundle.js");
-    const viewerHTMLURL = chrome.runtime.getURL("viewer/Viewer.html");
-    let bundleJS = await fetchWithRetry(bundleJSURL);
-    let viewerRawHTML = await fetchWithRetry(viewerHTMLURL);
-    // find the "<script src=\"./bundle.js\"></script>" tag in viewerHTML,
-    // replace it with bundleJS as a string.
-    const viewerHTML = viewerRawHTML.replace("<script src=\"./bundle.js\"></script>", ("\n" + bundleJS + "\n"));
-    filesToDownload.push(buildDocEntry(courseName, viewerHTML, safeCourse, coursePath, "viewer", String(courseId)));
+    try {
+      const bundleJSURL = chrome.runtime.getURL("viewer/bundle.js");
+      const viewerHTMLURL = chrome.runtime.getURL("viewer/Viewer.html");
+      let bundleJS = await fetchWithRetry(bundleJSURL);
+      let viewerRawHTML = await fetchWithRetry(viewerHTMLURL);
+      if (bundleJS.ok && viewerRawHTML.ok){
+        const bundleJSString = await bundleJS.text();
+        let viewerHTML = await viewerRawHTML.text();
+        
+        // Collect matches from the raw HTML template BEFORE inlining JS/CSS code
+        // to avoid matching <link> tags or <script> tags contained in vendor JS string literals
+        const scriptRegex = /<\s*script\s+src\s*=\s*(["'])(.+?)\1\s*>\s*<\s*\/\s*script\s*>/gi; 
+        const scriptMatches = [...viewerHTML.matchAll(scriptRegex)];
+
+        const styleRegex = /<link\s+[^>]*href=["']([^"']+)["'][^>]*\/?>/gi;
+        const styleMatches = [...viewerHTML.matchAll(styleRegex)];
+
+        // 1. Inline bundle.js
+        viewerHTML = viewerHTML.replace("<script src=\"./bundle.js\"></script>", ("\n<script>\n" + bundleJSString + "\n</script>"));
+
+        // 2. Inline vendor scripts
+        for (const match of scriptMatches) {
+          const fullTag = match[0];
+          const src = match[2]; // e.g., "./vendors/react.development.js"
+          if (src && src.startsWith("./vendors/")) {
+            const vendorURL = chrome.runtime.getURL("/viewer" + src.slice(1)); // removes the initial "." from the path
+            const vendorResponse = await fetchWithRetry(vendorURL);
+            if (vendorResponse.ok) {
+              let vendorText = await vendorResponse.text();
+              filesToDownload.push({
+                url: createDataUrl(vendorText, "text/javascript;charset=utf-8"),
+                filename: sanitizeFilename(src.slice(10)),
+                path: "vendors/",
+              })
+            } else {
+              console.error("[Canvas Downloader] Failed to fetch vendor:", vendorURL);
+              viewerHTML = viewerHTML.replace(fullTag, "");
+            }
+          }
+        }
+
+        // 3. Inline CSS stylesheets
+        for (const styleMatch of styleMatches) {
+          const fullTag = styleMatch[0];
+          const href = styleMatch[1]; // e.g., "./style/style.css"
+          if (href && href.startsWith("./style/")) {
+            const styleURL = chrome.runtime.getURL("/viewer" + href.slice(1));
+            const styleResponse = await fetchWithRetry(styleURL);
+            if (styleResponse.ok) {
+              const styleText = await styleResponse.text();
+              viewerHTML = viewerHTML.replace(fullTag, `\n<style>\n${styleText}\n</style>`);
+            } else {
+              console.error("[Canvas Downloader] Failed to fetch style:", styleURL);
+              viewerHTML = viewerHTML.replace(fullTag, "");
+            }
+          }
+        }
+
+        filesToDownload.push({
+          url: createDataUrl(viewerHTML, "text/html;charset=utf-8"),
+          filename: sanitizeFilename(courseName + "-viewer.html"),
+          path: "",
+        });
+      }
+    } catch (err) {
+      console.error("[Canvas Downloader] Canvas viewer compilation error:", err);
+    }
   }
 
   // --- Incremental mode: filter out unchanged files --------------------------
@@ -1455,7 +1514,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   };
 
   filesToDownload.push({
-    url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(manifest, null, 2))}`,
+    url: createDataUrl(JSON.stringify(manifest, null, 2), "application/json;charset=utf-8"),
     filename: "manifest.json",
     path: "",
   });
@@ -1559,12 +1618,27 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     }
   }
 
+  // Handle any local blob URLs directly in the content script context
+  const localBlobFiles = filesToDownload.filter((f) => f.url && f.url.startsWith("blob:"));
+  for (const f of localBlobFiles) {
+    const a = document.createElement("a");
+    a.href = f.url;
+    a.download = `${f.path}${f.filename}`.replace(/[/\\?%*:|"<>]/g, "-");
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(f.url), 60000);
+  }
+
+  const remoteFiles = filesToDownload.filter((f) => !f.url || !f.url.startsWith("blob:"));
+  if (remoteFiles.length === 0) return { status: "complete" };
+
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
       {
         type: "START_DOWNLOAD",
         payload: {
-          files: filesToDownload,
+          files: remoteFiles,
           courseName,
           conflictAction: settings.conflictAction,
           throttleMs: settings.throttleMs,

@@ -231,18 +231,22 @@ function relativePathToCourseRoot(filePath) {
   return depth === 0 ? "." : Array(depth).fill("..").join("/");
 }
 
+function createDataUrl(content, type = "text/plain;charset=utf-8") {
+  return URL.createObjectURL(new Blob([content], { type }));
+}
+
 /** Wraps content in an HTML page that links to `styles.css` at the course root. */
 function toHtmlDataUri(title, body, filePath = "") {
   const safeBody = sanitizeHtml(body);
   const cssHref = `${relativePathToCourseRoot(filePath)}/styles.css`;
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><link rel="stylesheet" href="${cssHref}"></head><body><h1>${title}</h1>${safeBody}</body></html>`;
-  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+  return createDataUrl(html, "text/html;charset=utf-8");
 }
 
 /** Wraps a Markdown body in a `# Title` heading and returns a data-URI. */
 function toMarkdownDataUri(title, mdBody) {
   const md = `# ${title}\n\n${mdBody}`;
-  return `data:text/markdown;charset=utf-8,${encodeURIComponent(md)}`;
+  return createDataUrl(md, "text/markdown;charset=utf-8");
 }
 
 /**
