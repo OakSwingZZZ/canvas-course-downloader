@@ -60,8 +60,8 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["icons/icon-128.png"],
-      "matches": ["https://*/*", "file://*/*", "http://*/*"]
+      "resources": ["icons/icon-128.png", "viewer/bundle.js", "viewer/Viewer.html", "viewer/style/*", "viewer/vendors/*"],
+      "matches": ["https://*/*", "file://*/*", "http://*/*", "chrome-extension://*/*"]
     }
   ],
   "options_ui": {

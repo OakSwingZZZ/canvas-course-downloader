@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "watch": "babel vendors contexts components pages helpers --out-file bundle.js --extensions \".jsx\" --source-maps inline --watch"
+    "watch": "babel contexts components pages helpers --out-file bundle.js --extensions \".jsx\" --source-maps inline --watch"
   },
   "keywords": [],
   "author": "",

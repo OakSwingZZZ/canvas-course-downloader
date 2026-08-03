@@ -93,19 +93,26 @@ document.addEventListener("DOMContentLoaded", () => {
   maybeShowFeedbackPrompt();
 
   chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+    const baseExtensionURL = chrome.runtime.getURL('');
+    let isCanvasViewerExtensionPage = false;
+    if (tab.url?.startsWith(baseExtensionURL) && tab.url?.includes(baseExtensionURL + "viewer/Viewer.html")) {
+      viewBtn.disabled = true;
+      viewBtnLabel.textContent = "Already Viewing";
+      setStatus("Viewing a course, navigate to a canvas page to download.", "success")
+      isCanvasViewerExtensionPage = true;
+    }
     chrome.tabs.sendMessage(tab.id, { action: "get_status" }, (response) => {
       if (chrome.runtime.lastError || !response) {
+        if (isCanvasViewerExtensionPage) return;          
         setStatus("Not on a Canvas page.", "error");
+        viewBtn.classList.add("view-btn-red")
         return;
       }
-      // If not on any Canvas page, add red to the button
-      if (response.isCanvas) viewBtn.classList.add("view-btn-red");
       if (response.isCanvasCourseViewer) {
         viewBtn.disabled = true;
         viewBtnLabel.textContent = "Already Viewing";
+        setStatus("Viewing a course, navigate to a canvas page to download.", "success")
       }
-      console.log("View Btn Disabled", viewBtn.disabled, "Response", response)
-
       if (response.isCanvas && response.courseId) {
         setStatus("Course detected", "success");
         downloadBtnLabel.textContent = "Download course content";
@@ -139,8 +146,6 @@ document.addEventListener("DOMContentLoaded", () => {
             window.close();
           });
         });
-      }else if (response.isCanvasCourseViewer) {
-        setStatus("Viewing a course, navigate to a canvas page to download.", "success")
       } else {
         setStatus("Navigate to a Canvas page first.", "error");
       }
