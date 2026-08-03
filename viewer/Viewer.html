@@ -1,55 +1,56 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <!-- Canvas Viewer part of Canvas Course Downloader (https://github.com/jasp-nerd/canvas-course-downloader) -->
-    <!--
+
+<head>
+  <meta charset="UTF-8" />
+  <!-- Canvas Viewer part of Canvas Course Downloader (https://github.com/jasp-nerd/canvas-course-downloader) -->
+  <!--
       Detection string: "CV_canvas-course-downloader"
       This string is used to detect that this is a canvas course viewer page
     -->
-    <title>Canvas Viewer</title>
+  <title>Canvas Viewer</title>
 
-    <!-- React Scripts DOM & React -->
-    <script src="./vendor/react.development.js"></script>
-    <script src="./vendor/react-dom.development.js"></script>
+  <!-- React Scripts DOM & React -->
+  <script src="./vendors/react.development.js"></script>
+  <script src="./vendors/react-dom.development.js"></script>
 
-    <!-- Babel (Converting JSX / React to JS in browser)-->
-    <script src="./vendor/babel.min.js"></script>
+  <!-- Babel (Converting JSX / React to JS in browser)-->
+  <script src="./vendors/babel.min.js"></script>
 
-    <!-- JS Zip (For unzipping)-->
-    <script src="./vendor/jszip.min.js"></script>
+  <!-- JS Zip (For unzipping)-->
+  <script src="./vendors/jszip.min.js"></script>
 
-    <!-- JS Mammoth (For rendering .docx files)-->
-    <script src="./vendor/mammoth.browser.min.js"></script>
+  <!-- JS Mammoth (For rendering .docx files)-->
+  <script src="./vendors/mammoth.browser.min.js"></script>
 
-    <!-- JS Chart.js and PPTXViewJS (For rendering Powerpoint files)-->
-    <script src="./vendor/chart.umd.min.js"></script>
-    <script src="./vendor/PptxViewJS.min.js"></script>
+  <!-- JS Chart.js and PPTXViewJS (For rendering Powerpoint files)-->
+  <script src="./vendors/chart.umd.min.js"></script>
+  <script src="./vendors/PptxViewJS.min.js"></script>
 
-    <!-- External CSS Styles -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,100;0,300;0,400;0,700;0,900;1,100;1,300;1,400;1,700;1,900&display=swap"
-      rel="stylesheet"
-    />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=settings"
-    />
+  <!-- IndexedDB Key Value Store -->
+  <script src="./vendors/idb-keyval-iife.min.js"></script>
 
-    <!-- IndexedDB Key Value Store -->
-    <script src="./vendor/idb-keyval-iife.min.js"></script>
+  <!-- External CSS Styles -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,100;0,300;0,400;0,700;0,900;1,100;1,300;1,400;1,700;1,900&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=settings" />
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="./style/style.css" />
+</head>
 
-    <!-- Custom CSS -->
-    <link rel="stylesheet" href="./style/style.css" />
-  </head>
-  <body>
-    <!-- React Components (Must use type="text/babel") -->
-    <script type="text/babel" src="./contexts/CourseContext.jsx"></script>
-    <script type="text/babel" src="./contexts/NavigationContext.jsx"></script>
+<body>
+  <!-- React Components (Must use type="text/babel") -->
+  <!-- Moved to bundle.js
+  <script type="text/babel" src="./contexts/CourseContext.jsx"></script>
+  <script type="text/babel" src="./contexts/NavigationContext.jsx"></script>
+  -->
 
-    <!-- Pages-->
+  <!-- Pages-->
+  <!-- Moved to bundle.js
     <script type="text/babel" src="./pages/AnnouncementDetailPage.jsx"></script>
     <script type="text/babel" src="./pages/AnnouncementsPage.jsx"></script>
     <script type="text/babel" src="./pages/App.jsx"></script>
@@ -66,8 +67,10 @@
     <script type="text/babel" src="./pages/NameProfileCard.jsx"></script>
     <script type="text/babel" src="./pages/PagesPage.jsx"></script>
     <script type="text/babel" src="./pages/PageDetailView.jsx"></script>
+    -->
 
-    <!-- Components -->
+  <!-- Components -->
+  <!-- Moved to bundle.js
     <script type="text/babel" src="./components/AssignmentRubric.jsx"></script>
     <script type="text/babel" src="./components/CanvasItemIcon.jsx"></script>
     <script type="text/babel" src="./components/CanvasSubmission.jsx"></script>
@@ -80,11 +83,16 @@
     <script type="text/babel" src="./components/PptxMemoryViewer.jsx"></script>
     <script type="text/babel" src="./components/ScoreDistributionGraph.jsx"></script>
     <script type="text/babel" src="./components/TopBreadcrumbs.jsx"></script>
+  -->
+  <!-- Helpers -->
+  <!-- Moved to bundle.js
+  <script type="text/babel" src="./helpers/Helpers.jsx"></script>
+  --> 
+  
+  <!-- The container where React renders (must go above the .bundle.js)-->
+  <div id="root" style="display: flex; width: 100%"></div>
+  <!-- Bundled Scripts -->
+  <script src="./bundle.js"></script>
+</body>
 
-    <!-- Helpers -->
-    <script type="text/babel" src="./helpers/Helpers.jsx"></script>
-
-    <!-- The container where React renders -->
-    <div id="root" style="display: flex; width: 100%"></div>
-  </body>
 </html>

@@ -18,6 +18,7 @@ body {
   display: flex;
   flex-direction: row;
   height: 100vh;
+  font-size: 100% !important;
 }
 h1 {
   color: #333;
