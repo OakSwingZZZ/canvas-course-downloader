@@ -527,7 +527,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       // Saves information about the files and folders to a JSON file for the viewer to use later.
       let files_obj = { files: files, folders: folders }; // store the files and folders arrays in a single object and saves them to the Files.json
       filesToDownload.push({
-        content: JSON.stringify(files_obj),
+        content: JSON.stringify(sanitizeJsonHtml(files_obj)),
         mimeType: "application/json;charset=utf-8",
         filename: "Files.json",
         path: "Files/",
@@ -763,7 +763,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     // Save the submissions object to a JSON file for use later in the viewer.
     if (types.saveJson) {
       filesToDownload.push({
-        content: JSON.stringify(self_submission_obj),
+        content: JSON.stringify(sanitizeJsonHtml(self_submission_obj)),
         mimeType: "application/json;charset=utf-8",
         filename: "Submissions.json",
         path: "Submissions/",
@@ -790,7 +790,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     if (announcements.length > 0 && types.saveJson) {
       // Save the announcements object to a JSON file for use later in the viewer.
       filesToDownload.push({
-        content: JSON.stringify(announcements),
+        content: JSON.stringify(sanitizeJsonHtml(announcements)),
         mimeType: "application/json;charset=utf-8",
         filename: "Announcements.json",
         path: "Announcements/",
@@ -913,7 +913,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     }
     if (types.saveJson){ // Saves the Discussions to the course file for the viewer
       filesToDownload.push({
-        content: JSON.stringify(discussion_obj, null, 2),
+        content: JSON.stringify(sanitizeJsonHtml(discussion_obj), null, 2),
         mimeType: "application/json;charset=utf-8",
         filename: `Discussions.json`,
         path: `Discussions/`,
@@ -927,7 +927,9 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   if (types.modules) {
     log("Fetching modules...");
     modules = await fetchAllPages(api("modules?per_page=100"));
-
+    const gradeAssignments = await fetchAllPages(
+      api("assignments?per_page=100&include[]=submission&include[]=score_statistics")
+    );
     let modulesBody = "";
     for (const [index, mod] of modules.entries()) { // added index parameter to the for loop
       log("Fetching module " + (index + 1) + "/" + modules.length);
@@ -937,9 +939,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       modules_obj[mod.id] = mod; // store the module object in the modules_obj using its id as the key
       modules_obj[mod.id].items = []; // store the items array in the module object
 
-      const gradeAssignments = await fetchAllPages(
-        api("assignments?per_page=100&include[]=submission&include[]=score_statistics")
-      );
+      
       for (const item of items) {
         const item_with_grade = gradeAssignments.find((a) => a.id === item.content_id);
         modules_obj[mod.id].items.push({ ...item, ...(item_with_grade ?? undefined) }); // store the item with grade in the module object
@@ -1007,7 +1007,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     filesToDownload.push(buildDocEntry("Modules", modulesBody, "Modules", "", "module-index"));
     if (types.saveJson){ // Saves Modules Data for use later in the viewer.
       filesToDownload.push({
-        content: JSON.stringify(modules_obj, null, 2),
+        content: JSON.stringify(sanitizeJsonHtml(modules_obj), null, 2),
         mimeType: "application/json;charset=utf-8",
         filename: "Modules.json",
         path: "",
@@ -1024,6 +1024,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   if (pageSlugsToFetch.size > 0) {
     log(`Fetching ${pageSlugsToFetch.size} page${pageSlugsToFetch.size === 1 ? "" : "s"}...`);
     console.log("[Canvas Downloader] Page slugs to fetch:", [...pageSlugsToFetch]);
+    const pageDetailsMap = new Map();
     for (const slug of pageSlugsToFetch) {
       try {
         const res = await fetchWithRetry(`${domain}/api/v1/courses/${courseId}/pages/${slug}`);
@@ -1032,6 +1033,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
           continue;
         }
         const page = await res.json();
+        if (page && page.url) pageDetailsMap.set(page.url, page);
 
         if (types.pages) {
           filesToDownload.push(
@@ -1056,11 +1058,13 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     if (pages.length == 0) {
       pages = await fetchAllPages(api("pages?per_page=100"));
     }
-    let pages_obj = pages.filter((p) => pages_included_in_obj.includes(p.url)); // filter the pages array to only include the pages that were included in the modules or pages list
+    let pages_obj = (pages.length > 0 ? pages : [...pageDetailsMap.values()])
+      .filter((p) => pages_included_in_obj.includes(p.url))
+      .map((p) => pageDetailsMap.get(p.url) || p);
     let pages_path = "Pages/";
     if (types.saveJson){ // Saves the Pages to a json file for the viewer.
       filesToDownload.push({
-        content: JSON.stringify(pages_obj, null, 2),
+        content: JSON.stringify(sanitizeJsonHtml(pages_obj), null, 2),
         mimeType: "application/json;charset=utf-8",
         filename: "Pages.json",
         path: pages_path,
@@ -1072,15 +1076,21 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     console.log("[Canvas Downloader] No pages found via Pages API list or Modules — nothing to fetch.");
   }
   // --- Home Page (front page) -------------------------------------------------------
-  let frontPageData = await fetchWithRetry(api('front_page'));
-  let frontPageJson = await frontPageData.json();
-  if (frontPageData && frontPageJson && frontPageJson.page_id && types.saveJson){ // Saves the front page to a json file for the viewer.
-    filesToDownload.push({
-      content: JSON.stringify(frontPageJson, null, 2),
-      mimeType: "application/json;charset=utf-8",
-      filename: "FrontPage.json",
-      path: "",
-    });
+  if (types.saveJson){
+    try {
+      let frontPageData = await fetchWithRetry(api('front_page'));
+      let frontPageJson = await frontPageData.json();
+      if (frontPageData && frontPageJson && frontPageJson.page_id){ // Saves the front page to a json file for the viewer.
+        filesToDownload.push({
+          content: JSON.stringify(sanitizeJsonHtml(frontPageJson), null, 2),
+          mimeType: "application/json;charset=utf-8",
+          filename: "FrontPage.json",
+          path: "",
+        });
+      }
+    } catch (err) {
+      console.warn("[Canvas Downloader] Could not fetch front page:", err);
+    }
   }
   // --- Syllabus --------------------------------------------------------------
   if (types.syllabus) {
@@ -1199,7 +1209,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
         // store the assignment data to a JSON file for use later
         if (types.assignments && types.saveJson) {
           filesToDownload.push({
-            content: JSON.stringify(assignments_obj, null, 2),
+            content: JSON.stringify(sanitizeJsonHtml(assignments_obj), null, 2),
             mimeType: "application/json;charset=utf-8",
             filename: "Assignments.json",
             path: "Assignments/",
@@ -1231,7 +1241,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       }
       if (types.saveJson){
         filesToDownload.push({ // store the assignment group data to json file for use later
-          content: JSON.stringify(groups, null, 2),
+          content: JSON.stringify(sanitizeJsonHtml(groups), null, 2),
           mimeType: "application/json;charset=utf-8",
           filename: "AssignmentGroups.json",
           path: "Assignments/",
@@ -1244,7 +1254,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
         const gradingPeriods = await gradingPeriodsResponse.json();
         if (types.saveJson){ // store the grading periods data to json file for use later
           filesToDownload.push({
-            content: JSON.stringify(gradingPeriods, null, 2),
+            content: JSON.stringify(sanitizeJsonHtml(gradingPeriods), null, 2),
             mimeType: "application/json;charset=utf-8",
             filename: "GradingPeriods.json",
             path: "Assignments/",
@@ -1555,7 +1565,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   };
 
   filesToDownload.push({
-    content: JSON.stringify(manifest, null, 2),
+    content: JSON.stringify(sanitizeJsonHtml(manifest), null, 2),
     mimeType: "application/json;charset=utf-8",
     filename: "manifest.json",
     path: "",
