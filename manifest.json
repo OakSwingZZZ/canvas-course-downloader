@@ -42,7 +42,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://*/*"
+        "https://*/*", "file://*/*", "http://*/*"
       ],
       "js": [
         "client-zip.min.js",
@@ -61,7 +61,7 @@
   "web_accessible_resources": [
     {
       "resources": ["icons/icon-128.png"],
-      "matches": ["https://*/*"]
+      "matches": ["https://*/*", "file://*/*", "http://*/*"]
     }
   ],
   "options_ui": {

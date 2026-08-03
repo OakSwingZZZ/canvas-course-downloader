@@ -2,24 +2,29 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Canvas Viewer part of Canvas Course Downloader (https://github.com/jasp-nerd/canvas-course-downloader) -->
+    <!--
+      Detection string: "CV_canvas-course-downloader"
+      This string is used to detect that this is a canvas course viewer page
+    -->
     <title>Canvas Viewer</title>
 
     <!-- React Scripts DOM & React -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="./vendor/react.development.js"></script>
+    <script src="./vendor/react-dom.development.js"></script>
 
     <!-- Babel (Converting JSX / React to JS in browser)-->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="./vendor/babel.min.js"></script>
 
     <!-- JS Zip (For unzipping)-->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="./vendor/jszip.min.js"></script>
 
     <!-- JS Mammoth (For rendering .docx files)-->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <script src="./vendor/mammoth.browser.min.js"></script>
 
-    <!-- JS Chart.js (For rendering Powerpoint files)-->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/pptxjs@1.1.9/dist/PptxViewJS.min.js"></script>
+    <!-- JS Chart.js and PPTXViewJS (For rendering Powerpoint files)-->
+    <script src="./vendor/chart.umd.min.js"></script>
+    <script src="./vendor/PptxViewJS.min.js"></script>
 
     <!-- External CSS Styles -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -34,7 +39,7 @@
     />
 
     <!-- IndexedDB Key Value Store -->
-    <script src="https://cdn.jsdelivr.net/npm/idb-keyval@3/dist/idb-keyval-iife.min.js"></script>
+    <script src="./vendor/idb-keyval-iife.min.js"></script>
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="./style/style.css" />

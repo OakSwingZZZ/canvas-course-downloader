@@ -41,7 +41,9 @@ async function ensureCdnPermission() {
 document.addEventListener("DOMContentLoaded", () => {
   const statusDiv = document.getElementById("status");
   const downloadBtn = document.getElementById("downloadBtn");
+  const viewBtn = document.getElementById("viewBtn");
   const downloadBtnLabel = document.getElementById("downloadBtnLabel");
+  const viewBtnLabel = document.getElementById("viewBtnLabel");
 
   const setStatus = (text, state) => {
     statusDiv.textContent = text;
@@ -52,6 +54,15 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("settingsLink").addEventListener("click", (e) => {
     e.preventDefault();
     chrome.runtime.openOptionsPage();
+  });
+
+  viewBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (!viewBtn.disabled) {
+      chrome.tabs.create({
+        url: "/viewer/Viewer.html",
+      });
+    }
   });
 
   // Load settings and show content type tags
@@ -87,6 +98,13 @@ document.addEventListener("DOMContentLoaded", () => {
         setStatus("Not on a Canvas page.", "error");
         return;
       }
+      // If not on any Canvas page, add red to the button
+      if (response.isCanvas) viewBtn.classList.add("view-btn-red");
+      if (response.isCanvasCourseViewer) {
+        viewBtn.disabled = true;
+        viewBtnLabel.textContent = "Already Viewing";
+      }
+      console.log("View Btn Disabled", viewBtn.disabled, "Response", response)
 
       if (response.isCanvas && response.courseId) {
         setStatus("Course detected", "success");
@@ -121,6 +139,8 @@ document.addEventListener("DOMContentLoaded", () => {
             window.close();
           });
         });
+      }else if (response.isCanvasCourseViewer) {
+        setStatus("Viewing a course, navigate to a canvas page to download.", "success")
       } else {
         setStatus("Navigate to a Canvas page first.", "error");
       }

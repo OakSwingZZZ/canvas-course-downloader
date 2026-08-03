@@ -37,7 +37,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     openCourseSelector();
     sendResponse({ status: "opened" });
   } else if (request.action === "get_status") {
-    sendResponse({ isCanvas: isCanvas(), courseId: getCourseId(), isHomepage: isCanvasHomepage(), courseName: getCourseId() ? getCourseName() : null });
+    sendResponse({ isCanvas: isCanvas(), courseId: getCourseId(), isHomepage: isCanvasHomepage(), isCanvasCourseViewer: isCanvasCourseViewer(), courseName: getCourseId() ? getCourseName() : null });
   }
 });
 
