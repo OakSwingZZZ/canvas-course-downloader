@@ -46,3 +46,13 @@ chrome.runtime.sendMessage({ type: "GET_DOWNLOAD_STATUS" }, (status) => {
   if (chrome.runtime.lastError || !status) return;
   if (status.total > 0 && !status.done) updateDownloadPanel(status);
 });
+
+//inject settings menu into Canvas Viewer instances
+if (isCanvasCourseViewer()){
+  const settingsNavigation = document.getElementById("CV_SETTINGS_LINK");
+  if (settingsNavigation) {
+    settingsNavigation.addEventListener("click", () => {
+      chrome.runtime.sendMessage({ type: "OPEN_OPTIONS" });
+    });
+  }
+}
