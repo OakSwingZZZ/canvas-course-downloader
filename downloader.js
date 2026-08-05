@@ -553,14 +553,16 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   // only appear as module items (Canvas's Pages list omits those for students
   // when the page isn't in the main pages navigation).
   let pages = [];
-  let pages_included_in_obj = []; // store the pages slugs in an array to save them to the pages.json for use later in the viewer.
+  const pages_included_in_obj = new Set(); // store the page slugs in a Set to save them to pages.json for use later in the viewer.
   const pageSlugsToFetch = new Set();
   if (types.pages) {
     log("Fetching pages list...");
     pages = await fetchAllPages(api("pages?per_page=100"));
     for (const p of pages) {
-      if (p.url) pageSlugsToFetch.add(p.url);
-      pages_included_in_obj.push(p.url); // Pushes each included page
+      if (p.url) {
+        pageSlugsToFetch.add(p.url);
+        pages_included_in_obj.add(p.url);
+      }
     }
   }
 
@@ -906,20 +908,28 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       modulesBody += `<h2>${mod.name}</h2><ul>`;
       const items = await fetchAllPages(api(`modules/${mod.id}/items?per_page=100`));
 
-      modules_obj[mod.id] = mod; // store the module object in the modules_obj using its id as the key
-      modules_obj[mod.id].items = []; // store the items array in the module object
-
+      modules_obj[mod.id] = { ...mod, items: [] }; // store the module object in the modules_obj using its id as the key and store the items array in the module object
 
       for (const item of items) {
+        let mergedItem = { ...item }; //start with the item object
         const item_with_grade = gradeAssignments.find((a) => a.id === item.content_id);
-        modules_obj[mod.id].items.push({ ...item, ...(item_with_grade ?? undefined) }); // store the item with grade in the module object
+        if (item_with_grade) { // if there is a grade assignment, merge it with the item object
+          for (const [key, value] of Object.entries(item_with_grade)) {
+            if (key in item) {
+              mergedItem[`assignment_${key}`] = value;
+            } else {
+              mergedItem[key] = value;
+            }
+          }
+        }
+        modules_obj[mod.id].items.push(mergedItem); // store the item with grade in the module object
 
         const label = item.html_url ? `<a href="${item.html_url}">${item.title}</a>` : item.title;
         modulesBody += `<li>${label} (${item.type})</li>`;
         // Track module-item → underlying-resource linkage for cross-ref rewriting.
         if (item.id) {
           if (item.type === "Page" && item.page_url) {
-            pages_included_in_obj.push(item.page_url);
+            pages_included_in_obj.add(item.page_url);
             moduleItemIdToResource.set(String(item.id), { type: "page", key: item.page_url });
           } else if (item.content_id) {
             const typeKey = { Assignment: "assignment", Discussion: "discussion", File: "file", Quiz: "quiz" }[item.type];
@@ -1024,11 +1034,8 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       }
     }
     // Store the list of pages and their data to json file
-    if (pages.length == 0) {
-      pages = await fetchAllPages(api("pages?per_page=100"));
-    }
     let pages_obj = (pages.length > 0 ? pages : [...pageDetailsMap.values()])
-      .filter((p) => pages_included_in_obj.includes(p.url))
+      .filter((p) => pages_included_in_obj.has(p.url))
       .map((p) => pageDetailsMap.get(p.url) || p);
     let pages_path = "Pages/";
     if (types.saveJson){ // Saves the Pages to a json file for the viewer.
@@ -1432,6 +1439,9 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     sourceUrl: `${domain}/courses/${courseId}`,
     exportDate: new Date().toISOString(),
     extensionVersion: chrome.runtime.getManifest().version,
+    manifestVersion: 2, //used for detecting if downloaded course has data required to use viewer
+    courseTerm: courseTerm,
+    useAssignmentGroupsForWeighting: useAssignmentGroups,
     counts: {
       files: files.length,
       pages: exportedPagesCount,

@@ -72,8 +72,6 @@ function setActivePreset(name) {
   document.querySelectorAll(".preset-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.preset === name);
   });
-  document.getElementById("offlineViewerCheckbox").checked = false;
-  document.getElementById("offlineViewerCheckbox").disabled = true;
 }
 
 function applyPreset(name) {
@@ -199,8 +197,4 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Save
   document.getElementById("save-btn").addEventListener("click", saveSettings);
-
-  // Uncheck and disable the offline viewer checkbox
-  document.getElementById("offlineViewerCheckbox").checked = false;
-  document.getElementById("offlineViewerCheckbox").disabled = true;
 });
