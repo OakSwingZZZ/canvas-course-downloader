@@ -54,7 +54,7 @@ const PRESETS = {
 };
 
 function getCheckboxes() {
-  return document.querySelectorAll('#content-types input[type="checkbox"]');
+  return document.querySelectorAll('#content-types input[type="checkbox"]:not([data-key="offlineViewer"]');
 }
 
 function detectPreset() {
